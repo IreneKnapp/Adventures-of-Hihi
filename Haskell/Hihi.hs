@@ -45,7 +45,7 @@ data Level = Level {
 data ActiveLevel = ActiveLevel {
       activeLevelGround :: Array (Int, Int) GroundType,
       activeLevelFixedObjects :: Array (Int, Int) (Maybe FixedObjectType),
-      activeLevelMovableObjects :: [((Int, Int), MovableObjectType)]
+      activeLevelMovableObjects :: [((Int, Int), MovableObjectType, Maybe Animation)]
     }
 
 data GroundType = Ground
@@ -64,6 +64,8 @@ data FixedObjectType = Heart
 data MovableObjectType = Emerald
                        | Hihi
                          deriving (Eq, Show)
+data Animation = Moving Direction
+
 
 demoLevel :: Level
 demoLevel = 
@@ -162,7 +164,7 @@ main = do
   EF.drawableSetDrawCallback drawable drawCallback gameContextPtr
   
   frameCallback <- EF.mkTimerCallback frame
-  EF.timeNewRepeatingTimer 20 frameCallback gameContextPtr
+  EF.timeNewRepeatingTimer 16 frameCallback gameContextPtr
   
   keyDownCallback <- EF.mkEventCallback keyDown
   EF.inputSetKeyDownCallback drawable keyDownCallback gameContextPtr
@@ -214,7 +216,7 @@ loadTextures :: GameContext -> EF.Drawable -> IO ()
 loadTextures gameContext drawable = do
   EF.drawableMakeCurrent drawable
   GL.texture GL.Texture2D $= GL.Enabled
-  newTextureIDs <- genObjectNames 10 :: IO [GL.TextureObject]
+  newTextureIDs <- genObjectNames 12 :: IO [GL.TextureObject]
   putMVar (textureIDsMVar gameContext) newTextureIDs
   resourcePath <- EF.configurationResourceDirectory
   mapM (\(resourceName, textureID) -> do
@@ -228,7 +230,9 @@ loadTextures gameContext drawable = do
               "object-rock.png",
               "object-tree.png",
               "object-arrow.png",
-              "character-hihi-down.png"]
+              "character-hihi-down.png",
+              "character-hihi-down-walk1.png",
+              "character-hihi-down-walk2.png"]
              newTextureIDs
   mapM (\textureID -> do
           GL.textureBinding GL.Texture2D $= Just textureID
@@ -270,34 +274,34 @@ draw drawable gameContextPtr = do
           mapM (\x -> do
                   let tile = activeLevelGround activeLevel ! (x, y)
                   case tile of
-                    Ground -> drawTile gameContext (x*2) (y*2) 0 Unrotated
-                    Grass -> drawTile gameContext (x*2) (y*2) 1 Unrotated
+                    Ground -> drawTile gameContext (x*2, y*2) (0, 0) 0 Unrotated
+                    Grass -> drawTile gameContext (x*2, y*2) (0, 0) 1 Unrotated
                     Water -> let which = (x
                                           + (y*levelSize)
                                           + (fromIntegral $ elapsedFrames `div` 20))
                                          `mod` 2
                              in case which of
-                                  0 -> drawTile gameContext (x*2) (y*2) 2 Unrotated
-                                  1 -> drawTile gameContext (x*2) (y*2) 3 Unrotated
+                                  0 -> drawTile gameContext (x*2, y*2) (0, 0) 2 Unrotated
+                                  1 -> drawTile gameContext (x*2, y*2) (0, 0) 3 Unrotated
                   let object = activeLevelFixedObjects activeLevel ! (x, y)
                   case object of
                     Nothing -> return ()
-                    Just Heart -> drawTile gameContext (x*2) (y*2) 4 Unrotated
-                    Just Rock -> drawTile gameContext (x*2) (y*2) 6 Unrotated
-                    Just Tree -> drawTile gameContext (x*2) (y*2) 7 Unrotated
+                    Just Heart -> drawTile gameContext (x*2, y*2) (0, 0) 4 Unrotated
+                    Just Rock -> drawTile gameContext (x*2, y*2) (0, 0) 6 Unrotated
+                    Just Tree -> drawTile gameContext (x*2, y*2) (0, 0) 7 Unrotated
                     Just (Arrow direction) ->
                         let rotation = case direction of
                                          Right -> Unrotated
                                          Down -> RotatedRight
                                          Left -> Rotated180
                                          Up -> RotatedLeft
-                        in drawTile gameContext (x*2) (y*2) 8 rotation)
+                        in drawTile gameContext (x*2, y*2) (0, 0) 8 rotation)
                [0..levelSize-1])
        [0..levelSize-1]
-  mapM (\((x, y), object) -> do
+  mapM (\((x, y), object, animation) -> do
           case object of
-            Emerald -> drawTile gameContext x y 5 Unrotated
-            Hihi -> drawTile gameContext x y 9 Unrotated)
+            Emerald -> drawTile gameContext (x, y) (0, 0) 5 Unrotated
+            Hihi -> drawTile gameContext (x, y) (0, 0) 9 Unrotated)
        $ activeLevelMovableObjects activeLevel
   
   drawable <- readMVar $ drawableMVar gameContext
@@ -306,8 +310,8 @@ draw drawable gameContextPtr = do
   return ()
 
 
-drawTile :: GameContext -> Int -> Int -> Int -> TileOrientation -> IO ()
-drawTile gameContext x y tile orientation = do
+drawTile :: GameContext -> (Int, Int) -> (Int, Int) -> Int -> TileOrientation -> IO ()
+drawTile gameContext (x, y) (xOffset, yOffset) tile orientation = do
   GL.texture GL.Texture2D $= GL.Enabled
   textureIDs <- readMVar $ textureIDsMVar gameContext
   GL.textureBinding GL.Texture2D $= Just (textureIDs !! tile)
@@ -353,7 +357,7 @@ frame timer gameContextPtr = do
   
   currentTime <- EF.timeUnixEpoch
   startupTime <- readMVar $ startupTimeMVar gameContext
-  elapsedFrames <- return $ (currentTime - startupTime) `div` 20
+  elapsedFrames <- return $ (currentTime - startupTime) `div` 16
   
   lastPlayedBlipAtFrame <- readMVar $ lastPlayedBlipAtFrameMVar gameContext
   nextBlipFrame <- return $ if lastPlayedBlipAtFrame == -1 
@@ -371,7 +375,7 @@ frame timer gameContextPtr = do
   lastAttemptedMovementAtFrame <- readMVar $ lastAttemptedMovementAtFrameMVar gameContext
   nextMovementFrame <- return $ if lastAttemptedMovementAtFrame == -1
                                 then 0
-                                else lastAttemptedMovementAtFrame + 10
+                                else lastAttemptedMovementAtFrame + 12
   
   if elapsedFrames >= fromIntegral nextMovementFrame
      then do
@@ -390,11 +394,12 @@ attemptMovement :: GameContext -> Direction -> IO ()
 attemptMovement gameContext direction = do
   ActiveLevel { activeLevelMovableObjects = movableObjects }
     <- readMVar $ activeLevelMVar gameContext
-  protagonistIndex <- return $ fromJust $ findIndex (\(_, object) -> case object of
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, object, _) -> case object of
                                                                        Hihi -> True
                                                                        _ -> False)
                                                     movableObjects
-  protagonistLocation <- return $ fst $ movableObjects !! protagonistIndex
+  protagonistLocation
+      <- return $ (\(location, _, _) -> location) $ movableObjects !! protagonistIndex
   obstructions <- obstructionsInDirection gameContext protagonistLocation direction
   specialMovementObstructions
       <- return $ filter (obstructionHasSpecialMovementRule . snd) obstructions
@@ -427,7 +432,9 @@ attemptMovement gameContext direction = do
                 [] -> do
                   obstructionIndex <- return
                                       $ fromJust
-                                        $ elemIndex (obstructionLocation, obstruction)
+                                        $ findIndex (\(iLocation, i, _) ->
+                                                     iLocation == obstructionLocation
+                                                     && i == obstruction)
                                                     movableObjects
                   obstructionLocation' <- return $ locationInDirection obstructionLocation
                                                                        direction
@@ -519,10 +526,12 @@ obstructionsInDirection gameContext location direction = do
       <- return $ possibleMobileObstructionLocationsInDirection location direction
   obstructingMobileObjects
       <- return $ concat $ map (\location ->
-                                    let maybeObject = lookup location movableObjects
+                                    let maybeObject = find (\(objectLocation, _, _)
+                                                            -> location == objectLocation)
+                                                           movableObjects
                                     in case maybeObject of
                                          Nothing -> []
-                                         Just object
+                                         Just (_, object, _)
                                              -> [(location, Object $ Movable object)])
                                possibleMobileObstructionLocations
   return $ concat [obstructingFixedObjects, obstructingMobileObjects, obstructingTerrain]
@@ -586,9 +595,11 @@ objectsInLocation gameContext targetLocation = do
                                   Just object -> [object]
                                   Nothing -> []
                            else []
-  movableObjects <- return $ map snd $ filter (\(objectLocation, object)
-                                                   -> objectLocation == targetLocation)
-                                              movableObjects
+  movableObjects <- return
+                    $ map (\(_, object, _) -> object)
+                    $ filter (\(objectLocation, object, _)
+                              -> objectLocation == targetLocation)
+                             movableObjects
   return $ concat [map (\object -> Fixed object) fixedObjects,
                    map (\object -> Movable object) movableObjects]
 
@@ -599,7 +610,10 @@ updateLocation gameContext movableObjectIndex newLocation = do
       <- takeMVar $ activeLevelMVar gameContext
   movableObjects' <- return $ concat [take movableObjectIndex movableObjects,
                                       [(newLocation,
-                                        snd $ movableObjects !! movableObjectIndex)],
+                                        (\(_, object, _) -> object)
+                                        $ movableObjects !! movableObjectIndex,
+                                        (\(_, _, animation) -> animation)
+                                        $ movableObjects !! movableObjectIndex)],
                                       drop (movableObjectIndex+1) movableObjects]
   activeLevel' <- return $ activeLevel {
                     activeLevelMovableObjects = movableObjects'
@@ -734,7 +748,9 @@ buildActiveLevel level =
         movableObjects = concat
                          $ map (\location@(x, y) -> case levelObjects level ! location of
                                                Just (Movable movableObject)
-                                                    -> [((x*2,y*2), movableObject)]
+                                                    -> [((x*2, y*2),
+                                                         movableObject,
+                                                         Nothing)]
                                                _ -> [])
                                allLocations
     in ActiveLevel {
