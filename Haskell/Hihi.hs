@@ -446,7 +446,32 @@ attemptMovement gameContext direction = do
     [] -> do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
       updateLocation gameContext protagonistIndex protagonistLocation'
+      overlappingObjects <- objectsInLocation gameContext protagonistLocation'
+      overlappingObjects
+          <- return $ filter (\object -> object /= Movable Hihi) overlappingObjects
+      mapM (\object ->
+                case object of
+                  Fixed Heart
+                      -> collectHeart gameContext
+                                      $ locationMappedToFixedGrid protagonistLocation'
+                  _ -> return ())
+           overlappingObjects
+      return ()
     _ -> return ()
+
+
+collectHeart :: GameContext -> (Int, Int) -> IO ()
+collectHeart gameContext location = do
+  activeLevel@(ActiveLevel { activeLevelFixedObjects = fixedObjects })
+      <- takeMVar $ activeLevelMVar gameContext
+  fixedObjects' <- return $ case fixedObjects ! location of
+                              Just Heart -> fixedObjects // [(location, Nothing)]
+                              _ -> fixedObjects
+  putMVar (activeLevelMVar gameContext)
+          (activeLevel { activeLevelFixedObjects = fixedObjects' })
+  
+  audioSourceIDs <- readMVar $ audioSourceIDsMVar gameContext
+  AL.play [(audioSourceIDs !! 1)]
 
 
 obstructionShouldBlockMovementInDirectionForMover
@@ -550,6 +575,24 @@ isDirectlyInFrontOf firstLocation secondLocation direction =
        && (firstSecondaryCoordinate == secondSecondaryCoordinate)
 
 
+objectsInLocation :: GameContext -> (Int, Int) -> IO [ObjectType]
+objectsInLocation gameContext targetLocation = do
+  ActiveLevel { activeLevelFixedObjects = fixedObjects,
+                activeLevelMovableObjects = movableObjects }
+    <- readMVar $ activeLevelMVar gameContext
+  fixedObjects <- return $ if locationIsOnFixedGrid targetLocation
+                           then case fixedObjects ! (locationMappedToFixedGrid
+                                                     targetLocation) of
+                                  Just object -> [object]
+                                  Nothing -> []
+                           else []
+  movableObjects <- return $ map snd $ filter (\(objectLocation, object)
+                                                   -> objectLocation == targetLocation)
+                                              movableObjects
+  return $ concat [map (\object -> Fixed object) fixedObjects,
+                   map (\object -> Movable object) movableObjects]
+
+
 updateLocation :: GameContext -> Int -> (Int, Int) -> IO ()
 updateLocation gameContext movableObjectIndex newLocation = do
   activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
@@ -619,6 +662,14 @@ valueOfAxis (_, y) Vertical = y
 locationFromAxes :: [(Int, Axis)] -> (Int, Int)
 locationFromAxes [(x, Horizontal), (y, Vertical)] = (x, y)
 locationFromAxes [(y, Vertical), (x, Horizontal)] = (x, y)
+
+
+locationIsOnFixedGrid :: (Int, Int) -> Bool
+locationIsOnFixedGrid (x, y) = (x `mod` 2 == 0) && (y `mod` 2 == 0)
+
+
+locationMappedToFixedGrid :: (Int, Int) -> (Int, Int)
+locationMappedToFixedGrid (x, y) = (x `div` 2, y `div` 2)
 
 
 keyDown :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
