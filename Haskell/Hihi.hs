@@ -2,6 +2,8 @@ module Hihi where
 
 import Control.Concurrent
 import Data.Array
+import Data.List
+import Data.Maybe
 import Data.ObjectName
 import Data.StateVar
 import Data.Tensor
@@ -12,6 +14,7 @@ import qualified Graphics.UI.EmeraldFrame as EF
 import Prelude hiding (Left, Right)
 import qualified Sound.OpenAL as AL
 import Sound.OpenAL.AL.BufferInternal (marshalBuffer)
+import System.IO.Unsafe
 
 
 data GameContext = GameContext {
@@ -19,12 +22,14 @@ data GameContext = GameContext {
       audioBufferIDsMVar :: MVar [AL.Buffer],
       audioSourceIDsMVar :: MVar [AL.Source],
       drawableMVar :: MVar EF.Drawable,
+      keyListMVar :: MVar [EF.Keycode],
       startupTimeMVar :: MVar Word64,
       activeLevelMVar :: MVar ActiveLevel,
-      lastPlayedBlipAtFrameMVar :: MVar Int
+      lastPlayedBlipAtFrameMVar :: MVar Int,
+      lastAttemptedMovementAtFrameMVar :: MVar Int
     }
 
-data Direction = Right | Left | Up | Down
+data Direction = Right | Left | Up | Down deriving (Show)
 
 data TileOrientation = Unrotated
                      | RotatedRight
@@ -47,12 +52,15 @@ data GroundType = Ground
                 | Water
 data ObjectType = Fixed FixedObjectType
                 | Movable MovableObjectType
+                  deriving (Show)
 data FixedObjectType = Heart
                      | Rock
                      | Tree
                      | Arrow Direction
+                       deriving (Show)
 data MovableObjectType = Emerald
                        | Hihi
+                         deriving (Show)
 
 demoLevel :: Level
 demoLevel = 
@@ -75,6 +83,7 @@ demoLevel =
                                (9, 1) -> Just $ Fixed Heart
                                (8, 2) -> Just $ Movable Emerald
                                (5, 5) -> Just $ Movable Hihi
+                               (4, 5) -> Just $ Fixed Tree
                                _ -> Nothing
         objectCell location = (location, object location)
     in Level {
@@ -93,17 +102,21 @@ main = do
   audioBufferIDsMVar <- newEmptyMVar
   audioSourceIDsMVar <- newEmptyMVar
   drawableMVar <- newEmptyMVar
+  keyListMVar <- newMVar []
   startupTimeMVar <- newEmptyMVar
   activeLevelMVar <- newEmptyMVar
   lastPlayedBlipAtFrameMVar <- newEmptyMVar
+  lastAttemptedMovementAtFrameMVar <- newEmptyMVar
   gameContext <- return $ GameContext {
                    textureIDsMVar = textureIDsMVar,
                    audioBufferIDsMVar = audioBufferIDsMVar,
                    audioSourceIDsMVar = audioSourceIDsMVar,
                    drawableMVar = drawableMVar,
+                   keyListMVar = keyListMVar,
                    startupTimeMVar = startupTimeMVar,
                    activeLevelMVar = activeLevelMVar,
-                   lastPlayedBlipAtFrameMVar = lastPlayedBlipAtFrameMVar
+                   lastPlayedBlipAtFrameMVar = lastPlayedBlipAtFrameMVar,
+                   lastAttemptedMovementAtFrameMVar = lastAttemptedMovementAtFrameMVar
                  }
   gameContextStablePtr <- newStablePtr gameContext
   gameContextPtr <- return $ castStablePtrToPtr gameContextStablePtr
@@ -138,6 +151,7 @@ main = do
   putMVar drawableMVar drawable
   putMVar startupTimeMVar startupTime
   putMVar lastPlayedBlipAtFrameMVar $ -1
+  putMVar lastAttemptedMovementAtFrameMVar $ -1
   activateLevel gameContext demoLevel
   
   drawCallback <- EF.mkDrawCallback draw
@@ -146,7 +160,14 @@ main = do
   frameCallback <- EF.mkTimerCallback frame
   EF.timeNewRepeatingTimer 20 frameCallback gameContextPtr
   
+  keyDownCallback <- EF.mkEventCallback keyDown
+  EF.inputSetKeyDownCallback drawable keyDownCallback gameContextPtr
+  
+  keyUpCallback <- EF.mkEventCallback keyUp
+  EF.inputSetKeyUpCallback drawable keyUpCallback gameContextPtr
+  
   EF.main
+
 
 loadSounds :: GameContext -> IO ()
 loadSounds gameContext = do
@@ -156,6 +177,7 @@ loadSounds gameContext = do
   EF.audioLoadSoundFile (resourcePath ++ "wing.mp3") (newBufferIDs !! 0)
   EF.audioLoadSoundFile (resourcePath ++ "blip.wav") (newBufferIDs !! 1)
   return ()
+
 
 initAL :: GameContext -> IO ()
 initAL gameContext = do
@@ -171,14 +193,18 @@ initAL gameContext = do
   
   return ()
 
+
 tileSize :: Int
 tileSize = 48
+
 
 levelSize :: Int
 levelSize = 11
 
+
 drawableSize :: (Int, Int)
 drawableSize = (tileSize*levelSize + 160, tileSize*levelSize)
+
 
 loadTextures :: GameContext -> EF.Drawable -> IO ()
 loadTextures gameContext drawable = do
@@ -206,6 +232,7 @@ loadTextures gameContext drawable = do
        newTextureIDs
   return ()
 
+
 initGL :: GameContext -> EF.Drawable -> IO ()
 initGL gameContext drawable = do
   EF.drawableMakeCurrent drawable
@@ -218,6 +245,7 @@ initGL gameContext drawable = do
   GL.blend $= GL.Enabled
   GL.blendFunc $= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
   return ()
+
 
 draw :: EF.Drawable -> Ptr () -> IO ()
 draw drawable gameContextPtr = do
@@ -336,10 +364,179 @@ frame timer gameContextPtr = do
        return ()
      else return ()
   
+  lastAttemptedMovementAtFrame <- readMVar $ lastAttemptedMovementAtFrameMVar gameContext
+  nextMovementFrame <- return $ if lastAttemptedMovementAtFrame == -1
+                                then 0
+                                else lastAttemptedMovementAtFrame + 10
+  
+  if elapsedFrames >= fromIntegral nextMovementFrame
+     then do
+       direction <- movementDirection gameContext
+       case direction of
+         Just direction -> attemptMovement gameContext direction
+         Nothing -> return ()
+       swapMVar (lastAttemptedMovementAtFrameMVar gameContext) nextMovementFrame
+       return ()
+     else return ()
+  
   return ()
+
+
+attemptMovement :: GameContext -> Direction -> IO ()
+attemptMovement gameContext direction = do
+  ActiveLevel { activeLevelMovableObjects = movableObjects }
+    <- readMVar $ activeLevelMVar gameContext
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, object) -> case object of
+                                                                       Hihi -> True
+                                                                       _ -> False)
+                                                    movableObjects
+  protagonistLocation <- return $ fst $ movableObjects !! protagonistIndex
+  obstructions <- obstructionsInDirection gameContext protagonistLocation direction
+  case obstructions of
+    [] -> do
+      protagonistLocation' <- return $ locationInDirection protagonistLocation direction
+      updateLocation gameContext protagonistIndex protagonistLocation'
+    _ -> do
+      putStrLn $ show obstructions
+
+
+obstructionsInDirection
+    :: GameContext -> (Int, Int) -> Direction -> IO [((Int, Int), ObjectType)]
+obstructionsInDirection gameContext location direction = do
+  ActiveLevel {
+      activeLevelFixedObjects = fixedObjects,
+      activeLevelMovableObjects = movableObjects
+    } <- readMVar $ activeLevelMVar gameContext
+  possibleFixedObstructionLocations
+      <- return $ possibleFixedObstructionLocationsInDirection location direction
+  putStrLn $ "At " ++ (show location) ++ " obstructions " ++ (show direction)
+           ++ " " ++ (show possibleFixedObstructionLocations)
+  obstructingFixedObjects
+    <- return $ concat $ map (\location -> let maybeObject = fixedObjects ! location
+                                               in case maybeObject of
+                                                  Nothing -> []
+                                                  Just object
+                                                      -> [(location, Fixed object)])
+                             possibleFixedObstructionLocations
+  possibleMobileObstructionLocations
+      <- return $ possibleMobileObstructionLocationsInDirection location direction
+  return obstructingFixedObjects
+
+
+possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
+possibleFixedObstructionLocationsInDirection (x, y) Up
+    = if y `mod` 2 == 1
+      then []
+      else if x `mod` 2 == 1
+           then [((x-1) `div` 2, (y `div` 2) - 1),
+                 ((x+1) `div` 2, (y `div` 2) - 1)]
+           else [(x `div` 2, (y `div` 2) - 1)]
+possibleFixedObstructionLocationsInDirection (x, y) Down
+    = if y `mod` 2 == 1
+      then []
+      else if x `mod` 2 == 1
+           then [((x-1) `div` 2, (y `div` 2) + 1),
+                 ((x+1) `div` 2, (y `div` 2) + 1)]
+           else [(x `div` 2, (y `div` 2) + 1)]
+possibleFixedObstructionLocationsInDirection (x, y) Left
+    = if x `mod` 2 == 1
+      then []
+      else if y `mod` 2 == 1
+           then [((x `div` 2) - 1, (y-1) `div` 2),
+                 ((x `div` 2) - 1, (y+1) `div` 2)]
+           else [((x `div` 2) - 1, y `div` 2)]
+possibleFixedObstructionLocationsInDirection (x, y) Right
+    = if x `mod` 2 == 1
+      then []
+      else if y `mod` 2 == 1
+           then [((x `div` 2) + 1, (y-1) `div` 2),
+                 ((x `div` 2) + 1, (y+1) `div` 2)]
+           else [((x `div` 2) + 1, y `div` 2)]
+
+
+possibleMobileObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
+possibleMobileObstructionLocationsInDirection (x, y) Up
+    = [(x-1, y-1), (x, y-1), (x+1, y-1)]
+possibleMobileObstructionLocationsInDirection (x, y) Down
+    = [(x-1, y+1), (x, y+1), (x+1, y+1)]
+possibleMobileObstructionLocationsInDirection (x, y) Left
+    = [(x-1, y-1), (x-1, y), (x-1, y+1)]
+possibleMobileObstructionLocationsInDirection (x, y) Right
+    = [(x+1, y-1), (x+1, y), (x+1, y+1)]
+
+
+updateLocation :: GameContext -> Int -> (Int, Int) -> IO ()
+updateLocation gameContext movableObjectIndex newLocation = do
+  activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
+      <- takeMVar $ activeLevelMVar gameContext
+  movableObjects' <- return $ concat [take movableObjectIndex movableObjects,
+                                      [(newLocation,
+                                        snd $ movableObjects !! movableObjectIndex)],
+                                      drop (movableObjectIndex+1) movableObjects]
+  activeLevel' <- return $ activeLevel {
+                    activeLevelMovableObjects = movableObjects'
+                  }
+  putMVar (activeLevelMVar gameContext) activeLevel'
+
+
+locationInDirection :: (Int, Int) -> Direction -> (Int, Int)
+locationInDirection (x, y) Up = (x, y-1)
+locationInDirection (x, y) Down = (x, y+1)
+locationInDirection (x, y) Left = (x-1, y)
+locationInDirection (x, y) Right = (x+1, y)
+
+
+keyDown :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
+keyDown drawable event gameContextPtr = do
+  gameContext <- deRefStablePtr $ castPtrToStablePtr gameContextPtr
+  newKey <- EF.eventKeycode event
+  keyList <- takeMVar $ keyListMVar gameContext
+  keyList' <- return $ sort $ nub $ keyList ++ [newKey]
+  putMVar (keyListMVar gameContext) keyList'
+
+
+keyUp :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
+keyUp drawable event gameContextPtr = do
+  gameContext <- deRefStablePtr $ castPtrToStablePtr gameContextPtr
+  removedKey <- EF.eventKeycode event
+  keyList <- takeMVar $ keyListMVar gameContext
+  keyList' <- return $ delete removedKey keyList
+  putMVar (keyListMVar gameContext) keyList'
+
+
+cursorUpKeycode :: EF.Keycode
+cursorUpKeycode = unsafePerformIO $ EF.inputKeycodeByName "cursor up"
+
+
+cursorDownKeycode :: EF.Keycode
+cursorDownKeycode = unsafePerformIO $ EF.inputKeycodeByName "cursor down"
+
+
+cursorLeftKeycode :: EF.Keycode
+cursorLeftKeycode = unsafePerformIO $ EF.inputKeycodeByName "cursor left"
+
+
+cursorRightKeycode :: EF.Keycode
+cursorRightKeycode = unsafePerformIO $ EF.inputKeycodeByName "cursor right"
+
+
+movementDirection :: GameContext -> IO (Maybe Direction)
+movementDirection gameContext = do
+  keyList <- readMVar $ keyListMVar gameContext
+  return $ if elem cursorUpKeycode keyList
+           then Just Up
+           else if elem cursorDownKeycode keyList
+                then Just Down
+                else if elem cursorLeftKeycode keyList
+                     then Just Left
+                     else if elem cursorRightKeycode keyList
+                          then Just Right
+                          else Nothing
+
 
 allLocations :: [(Int, Int)]
 allLocations = [(x, y) | x <- [0..10], y <- [0..10]]
+
 
 buildActiveLevel :: Level -> ActiveLevel
 buildActiveLevel level =
@@ -359,6 +556,7 @@ buildActiveLevel level =
              activeLevelFixedObjects = fixedObjects,
              activeLevelMovableObjects = movableObjects
            }
+
 
 activateLevel :: GameContext -> Level -> IO ()
 activateLevel gameContext level = do
