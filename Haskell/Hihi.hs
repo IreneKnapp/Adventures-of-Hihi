@@ -51,19 +51,19 @@ data ActiveLevel = ActiveLevel {
 data GroundType = Ground
                 | Grass
                 | Water
-                  deriving (Show)
+                  deriving (Eq, Show)
 data ObjectType = Fixed FixedObjectType
                 | Movable MovableObjectType
-                  deriving (Show)
-data ObjectOrTerrainType = Object ObjectType | Terrain GroundType deriving (Show)
+                  deriving (Eq, Show)
+data ObjectOrTerrainType = Object ObjectType | Terrain GroundType deriving (Eq, Show)
 data FixedObjectType = Heart
                      | Rock
                      | Tree
                      | Arrow Direction
-                       deriving (Show)
+                       deriving (Eq, Show)
 data MovableObjectType = Emerald
                        | Hihi
-                         deriving (Show)
+                         deriving (Eq, Show)
 
 demoLevel :: Level
 demoLevel = 
@@ -85,6 +85,7 @@ demoLevel =
                                (9, 4) -> Just (Fixed $ Arrow Right)
                                (9, 1) -> Just $ Fixed Heart
                                (8, 2) -> Just $ Movable Emerald
+                               (8, 8) -> Just $ Movable Emerald
                                (5, 5) -> Just $ Movable Hihi
                                (4, 5) -> Just $ Fixed Tree
                                _ -> Nothing
@@ -395,11 +396,43 @@ attemptMovement gameContext direction = do
                                                     movableObjects
   protagonistLocation <- return $ fst $ movableObjects !! protagonistIndex
   obstructions <- obstructionsInDirection gameContext protagonistLocation direction
+  specialMovementObstructions
+      <- return $ filter (obstructionHasSpecialMovementRule . snd) obstructions
+  specialMovementObstructions
+      <- return $ filter (\pair -> isDirectlyInFrontOf protagonistLocation
+                                                       (fst pair)
+                                                       direction)
+                         specialMovementObstructions
+  specialMovementObstructions
+      <- return $ map (\(location, Object (Movable object)) -> (location, object))
+                      specialMovementObstructions
+  mapM (\(obstructionLocation, obstruction) -> do
+          obstructionsOneSpaceAway <- obstructionsInDirection gameContext
+                                                              obstructionLocation
+                                                              direction
+          obstructionsOneSpaceAway
+              <- return $ filter (\pair
+                                  -> obstructionShouldBlockMovementInDirection (snd pair)
+                                                                               direction)
+                                 obstructionsOneSpaceAway
+          case obstructionsOneSpaceAway of
+            [] -> do
+              obstructionIndex <- return
+                                  $ fromJust
+                                    $ elemIndex (obstructionLocation, obstruction)
+                                                movableObjects
+              obstructionLocation' <- return $ locationInDirection obstructionLocation
+                                                                   direction
+              updateLocation gameContext obstructionIndex obstructionLocation'
+            _ -> return ())
+       specialMovementObstructions
+  obstructions <- obstructionsInDirection gameContext protagonistLocation direction
   obstructions
       <- return $ filter (\pair
                               -> obstructionShouldBlockMovementInDirection (snd pair)
                                                                            direction)
                          obstructions
+  -- obstructions <- return $ obstructions \\ specialMovementObstructions
   case obstructions of
     [] -> do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
@@ -417,6 +450,11 @@ obstructionShouldBlockMovementInDirection (Terrain Water) _ = True
 obstructionShouldBlockMovementInDirection (Terrain _) _ = False
 
 
+obstructionHasSpecialMovementRule :: ObjectOrTerrainType -> Bool
+obstructionHasSpecialMovementRule (Object (Movable Emerald)) = True
+obstructionHasSpecialMovementRule _ = False
+
+
 obstructionsInDirection
     :: GameContext -> (Int, Int) -> Direction -> IO [((Int, Int), ObjectOrTerrainType)]
 obstructionsInDirection gameContext location direction = do
@@ -428,21 +466,29 @@ obstructionsInDirection gameContext location direction = do
   possibleFixedObstructionLocations
       <- return $ possibleFixedObstructionLocationsInDirection location direction
   obstructingFixedObjects
-    <- return $ concat $ map (\location@(x, y)
-                                  -> let maybeObject = fixedObjects ! location
-                                     in case maybeObject of
-                                          Nothing -> []
-                                          Just object
-                                              -> [((x*2, y*2), Object $ Fixed object)])
-                             possibleFixedObstructionLocations
+      <- return $ concat $ map (\location@(x, y)
+                                    -> let maybeObject = fixedObjects ! location
+                                       in case maybeObject of
+                                            Nothing -> []
+                                            Just object
+                                                -> [((x*2, y*2), Object $ Fixed object)])
+                               possibleFixedObstructionLocations
   obstructingTerrain
-    <- return $ concat $ map (\location@(x, y)
-                                  -> let groundObject = ground ! location
-                                     in [((x*2, y*2), Terrain groundObject)])
-                             possibleFixedObstructionLocations
+      <- return $ concat $ map (\location@(x, y)
+                                    -> let groundObject = ground ! location
+                                       in [((x*2, y*2), Terrain groundObject)])
+                               possibleFixedObstructionLocations
   possibleMobileObstructionLocations
       <- return $ possibleMobileObstructionLocationsInDirection location direction
-  return $ concat [obstructingFixedObjects, obstructingTerrain]
+  obstructingMobileObjects
+      <- return $ concat $ map (\location ->
+                                    let maybeObject = lookup location movableObjects
+                                    in case maybeObject of
+                                         Nothing -> []
+                                         Just object
+                                             -> [(location, Object $ Movable object)])
+                               possibleMobileObstructionLocations
+  return $ concat [obstructingFixedObjects, obstructingMobileObjects, obstructingTerrain]
 
 
 possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
@@ -466,14 +512,30 @@ possibleFixedObstructionLocationsInDirection location direction
 
 
 possibleMobileObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
-possibleMobileObstructionLocationsInDirection (x, y) Up
-    = [(x-1, y-1), (x, y-1), (x+1, y-1)]
-possibleMobileObstructionLocationsInDirection (x, y) Down
-    = [(x-1, y+1), (x, y+1), (x+1, y+1)]
-possibleMobileObstructionLocationsInDirection (x, y) Left
-    = [(x-1, y-1), (x-1, y), (x-1, y+1)]
-possibleMobileObstructionLocationsInDirection (x, y) Right
-    = [(x+1, y-1), (x+1, y), (x+1, y+1)]
+possibleMobileObstructionLocationsInDirection location direction
+    = let primaryAxis = directionAxis direction
+          secondaryAxis = otherAxis primaryAxis
+          primaryCoordinate = valueOfAxis location primaryAxis
+          secondaryCoordinate = valueOfAxis location secondaryAxis
+          newPrimaryCoordinate = primaryCoordinate + (directionSign direction * 2)
+      in map locationFromAxes [[(newPrimaryCoordinate, primaryAxis),
+                                (secondaryCoordinate - 1, secondaryAxis)],
+                               [(newPrimaryCoordinate, primaryAxis),
+                                (secondaryCoordinate, secondaryAxis)],
+                               [(newPrimaryCoordinate, primaryAxis),
+                                (secondaryCoordinate + 1, secondaryAxis)]]
+
+
+isDirectlyInFrontOf :: (Int, Int) -> (Int, Int) -> Direction -> Bool
+isDirectlyInFrontOf firstLocation secondLocation direction =
+    let primaryAxis = directionAxis direction
+        secondaryAxis = otherAxis primaryAxis
+        firstPrimaryCoordinate = valueOfAxis firstLocation primaryAxis
+        secondPrimaryCoordinate = valueOfAxis secondLocation primaryAxis
+        firstSecondaryCoordinate = valueOfAxis firstLocation secondaryAxis
+        secondSecondaryCoordinate = valueOfAxis secondLocation secondaryAxis
+    in (firstPrimaryCoordinate + (directionSign direction * 2) == secondPrimaryCoordinate)
+       && (firstSecondaryCoordinate == secondSecondaryCoordinate)
 
 
 updateLocation :: GameContext -> Int -> (Int, Int) -> IO ()
