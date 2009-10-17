@@ -403,36 +403,45 @@ attemptMovement gameContext direction = do
                                                        (fst pair)
                                                        direction)
                          specialMovementObstructions
+  obstructions <- return $ obstructions \\ specialMovementObstructions
+  obstructions
+      <- return $ filter (\pair
+                              -> obstructionShouldBlockMovementInDirectionForMover
+                                   (snd pair) direction Hihi)
+                         obstructions
   specialMovementObstructions
       <- return $ map (\(location, Object (Movable object)) -> (location, object))
                       specialMovementObstructions
-  mapM (\(obstructionLocation, obstruction) -> do
-          obstructionsOneSpaceAway <- obstructionsInDirection gameContext
-                                                              obstructionLocation
-                                                              direction
-          obstructionsOneSpaceAway
-              <- return $ filter (\pair
-                                  -> obstructionShouldBlockMovementInDirection (snd pair)
-                                                                               direction)
-                                 obstructionsOneSpaceAway
-          case obstructionsOneSpaceAway of
-            [] -> do
-              obstructionIndex <- return
-                                  $ fromJust
-                                    $ elemIndex (obstructionLocation, obstruction)
-                                                movableObjects
-              obstructionLocation' <- return $ locationInDirection obstructionLocation
-                                                                   direction
-              updateLocation gameContext obstructionIndex obstructionLocation'
-            _ -> return ())
-       specialMovementObstructions
+  case obstructions of
+    [] -> do
+      mapM (\(obstructionLocation, obstruction) -> do
+              obstructionsOneSpaceAway <- obstructionsInDirection gameContext
+                                                                  obstructionLocation
+                                                                  direction
+              obstructionsOneSpaceAway
+                  <- return $ filter (\pair
+                                  -> obstructionShouldBlockMovementInDirectionForMover
+                                        (snd pair) direction obstruction)
+                                     obstructionsOneSpaceAway
+              case obstructionsOneSpaceAway of
+                [] -> do
+                  obstructionIndex <- return
+                                      $ fromJust
+                                        $ elemIndex (obstructionLocation, obstruction)
+                                                    movableObjects
+                  obstructionLocation' <- return $ locationInDirection obstructionLocation
+                                                                       direction
+                  updateLocation gameContext obstructionIndex obstructionLocation'
+                _ -> return ())
+           specialMovementObstructions
+      return ()
+    _ -> return ()
   obstructions <- obstructionsInDirection gameContext protagonistLocation direction
   obstructions
       <- return $ filter (\pair
-                              -> obstructionShouldBlockMovementInDirection (snd pair)
-                                                                           direction)
+                              -> obstructionShouldBlockMovementInDirectionForMover
+                                   (snd pair) direction Hihi)
                          obstructions
-  -- obstructions <- return $ obstructions \\ specialMovementObstructions
   case obstructions of
     [] -> do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
@@ -440,14 +449,17 @@ attemptMovement gameContext direction = do
     _ -> return ()
 
 
-obstructionShouldBlockMovementInDirection :: ObjectOrTerrainType -> Direction -> Bool
-obstructionShouldBlockMovementInDirection
-  (Object (Fixed (Arrow arrowDirection))) movementDirection
+obstructionShouldBlockMovementInDirectionForMover
+    :: ObjectOrTerrainType -> Direction -> MovableObjectType -> Bool
+obstructionShouldBlockMovementInDirectionForMover
+  (Object (Fixed (Arrow arrowDirection))) movementDirection Hihi
   = arrowDirection == oppositeDirection movementDirection
-obstructionShouldBlockMovementInDirection (Object (Fixed Heart)) _ = False
-obstructionShouldBlockMovementInDirection (Object _) _ = True
-obstructionShouldBlockMovementInDirection (Terrain Water) _ = True
-obstructionShouldBlockMovementInDirection (Terrain _) _ = False
+obstructionShouldBlockMovementInDirectionForMover
+  (Object (Fixed (Arrow _))) _ _ = False
+obstructionShouldBlockMovementInDirectionForMover (Object (Fixed Heart)) _ _ = False
+obstructionShouldBlockMovementInDirectionForMover (Object _) _ _ = True
+obstructionShouldBlockMovementInDirectionForMover (Terrain Water) _ _ = True
+obstructionShouldBlockMovementInDirectionForMover (Terrain _) _ _ = False
 
 
 obstructionHasSpecialMovementRule :: ObjectOrTerrainType -> Bool
