@@ -29,8 +29,8 @@ data GameContext = GameContext {
       lastAttemptedMovementAtFrameMVar :: MVar Int
     }
 
-data Direction = Right | Left | Up | Down deriving (Show)
-data Axis = Vertical | Horizontal deriving (Show)
+data Direction = Right | Left | Up | Down deriving (Eq, Show)
+data Axis = Vertical | Horizontal deriving (Eq, Show)
 
 data TileOrientation = Unrotated
                      | RotatedRight
@@ -51,9 +51,11 @@ data ActiveLevel = ActiveLevel {
 data GroundType = Ground
                 | Grass
                 | Water
+                  deriving (Show)
 data ObjectType = Fixed FixedObjectType
                 | Movable MovableObjectType
                   deriving (Show)
+data ObjectOrTerrainType = Object ObjectType | Terrain GroundType deriving (Show)
 data FixedObjectType = Heart
                      | Rock
                      | Tree
@@ -393,35 +395,54 @@ attemptMovement gameContext direction = do
                                                     movableObjects
   protagonistLocation <- return $ fst $ movableObjects !! protagonistIndex
   obstructions <- obstructionsInDirection gameContext protagonistLocation direction
+  obstructions
+      <- return $ filter (\pair
+                              -> obstructionShouldBlockMovementInDirection (snd pair)
+                                                                           direction)
+                         obstructions
   case obstructions of
     [] -> do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
       updateLocation gameContext protagonistIndex protagonistLocation'
-    _ -> do
-      putStrLn $ show obstructions
+    _ -> return ()
+
+
+obstructionShouldBlockMovementInDirection :: ObjectOrTerrainType -> Direction -> Bool
+obstructionShouldBlockMovementInDirection
+  (Object (Fixed (Arrow arrowDirection))) movementDirection
+  = arrowDirection == oppositeDirection movementDirection
+obstructionShouldBlockMovementInDirection (Object (Fixed Heart)) _ = False
+obstructionShouldBlockMovementInDirection (Object _) _ = True
+obstructionShouldBlockMovementInDirection (Terrain Water) _ = True
+obstructionShouldBlockMovementInDirection (Terrain _) _ = False
 
 
 obstructionsInDirection
-    :: GameContext -> (Int, Int) -> Direction -> IO [((Int, Int), ObjectType)]
+    :: GameContext -> (Int, Int) -> Direction -> IO [((Int, Int), ObjectOrTerrainType)]
 obstructionsInDirection gameContext location direction = do
   ActiveLevel {
+      activeLevelGround = ground,
       activeLevelFixedObjects = fixedObjects,
       activeLevelMovableObjects = movableObjects
     } <- readMVar $ activeLevelMVar gameContext
   possibleFixedObstructionLocations
       <- return $ possibleFixedObstructionLocationsInDirection location direction
-  putStrLn $ "At " ++ (show location) ++ " obstructions " ++ (show direction)
-           ++ " " ++ (show possibleFixedObstructionLocations)
   obstructingFixedObjects
     <- return $ concat $ map (\location@(x, y)
                                   -> let maybeObject = fixedObjects ! location
                                      in case maybeObject of
                                           Nothing -> []
-                                          Just object -> [((x*2, y*2), Fixed object)])
+                                          Just object
+                                              -> [((x*2, y*2), Object $ Fixed object)])
+                             possibleFixedObstructionLocations
+  obstructingTerrain
+    <- return $ concat $ map (\location@(x, y)
+                                  -> let groundObject = ground ! location
+                                     in [((x*2, y*2), Terrain groundObject)])
                              possibleFixedObstructionLocations
   possibleMobileObstructionLocations
       <- return $ possibleMobileObstructionLocationsInDirection location direction
-  return obstructingFixedObjects
+  return $ concat [obstructingFixedObjects, obstructingTerrain]
 
 
 possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
