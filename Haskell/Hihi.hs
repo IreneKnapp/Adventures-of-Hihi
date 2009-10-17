@@ -30,6 +30,7 @@ data GameContext = GameContext {
     }
 
 data Direction = Right | Left | Up | Down deriving (Show)
+data Axis = Vertical | Horizontal deriving (Show)
 
 data TileOrientation = Unrotated
                      | RotatedRight
@@ -412,11 +413,11 @@ obstructionsInDirection gameContext location direction = do
   putStrLn $ "At " ++ (show location) ++ " obstructions " ++ (show direction)
            ++ " " ++ (show possibleFixedObstructionLocations)
   obstructingFixedObjects
-    <- return $ concat $ map (\location -> let maybeObject = fixedObjects ! location
-                                               in case maybeObject of
-                                                  Nothing -> []
-                                                  Just object
-                                                      -> [(location, Fixed object)])
+    <- return $ concat $ map (\location@(x, y)
+                                  -> let maybeObject = fixedObjects ! location
+                                     in case maybeObject of
+                                          Nothing -> []
+                                          Just object -> [((x*2, y*2), Fixed object)])
                              possibleFixedObstructionLocations
   possibleMobileObstructionLocations
       <- return $ possibleMobileObstructionLocationsInDirection location direction
@@ -424,34 +425,23 @@ obstructionsInDirection gameContext location direction = do
 
 
 possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
-possibleFixedObstructionLocationsInDirection (x, y) Up
-    = if y `mod` 2 == 1
-      then []
-      else if x `mod` 2 == 1
-           then [((x-1) `div` 2, (y `div` 2) - 1),
-                 ((x+1) `div` 2, (y `div` 2) - 1)]
-           else [(x `div` 2, (y `div` 2) - 1)]
-possibleFixedObstructionLocationsInDirection (x, y) Down
-    = if y `mod` 2 == 1
-      then []
-      else if x `mod` 2 == 1
-           then [((x-1) `div` 2, (y `div` 2) + 1),
-                 ((x+1) `div` 2, (y `div` 2) + 1)]
-           else [(x `div` 2, (y `div` 2) + 1)]
-possibleFixedObstructionLocationsInDirection (x, y) Left
-    = if x `mod` 2 == 1
-      then []
-      else if y `mod` 2 == 1
-           then [((x `div` 2) - 1, (y-1) `div` 2),
-                 ((x `div` 2) - 1, (y+1) `div` 2)]
-           else [((x `div` 2) - 1, y `div` 2)]
-possibleFixedObstructionLocationsInDirection (x, y) Right
-    = if x `mod` 2 == 1
-      then []
-      else if y `mod` 2 == 1
-           then [((x `div` 2) + 1, (y-1) `div` 2),
-                 ((x `div` 2) + 1, (y+1) `div` 2)]
-           else [((x `div` 2) + 1, y `div` 2)]
+possibleFixedObstructionLocationsInDirection location direction
+    = let primaryAxis = directionAxis direction
+          secondaryAxis = otherAxis primaryAxis
+          primaryCoordinate = valueOfAxis location primaryAxis
+          secondaryCoordinate = valueOfAxis location secondaryAxis
+      in if primaryCoordinate `mod` 2 == 1
+         then []
+         else if secondaryCoordinate `mod` 2 == 1
+              then [locationFromAxes
+                    [((primaryCoordinate `div` 2) + directionSign direction, primaryAxis),
+                     ((secondaryCoordinate - 1) `div` 2, secondaryAxis)],
+                    locationFromAxes
+                    [((primaryCoordinate `div` 2) + directionSign direction, primaryAxis),
+                     ((secondaryCoordinate + 1) `div` 2, secondaryAxis)]]
+              else [locationFromAxes
+                    [((primaryCoordinate `div` 2) + directionSign direction, primaryAxis),
+                     (secondaryCoordinate `div` 2, secondaryAxis)]]
 
 
 possibleMobileObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
@@ -484,6 +474,56 @@ locationInDirection (x, y) Up = (x, y-1)
 locationInDirection (x, y) Down = (x, y+1)
 locationInDirection (x, y) Left = (x-1, y)
 locationInDirection (x, y) Right = (x+1, y)
+
+
+oppositeDirection :: Direction -> Direction
+oppositeDirection Up = Down
+oppositeDirection Down = Up
+oppositeDirection Left = Right
+oppositeDirection Right = Left
+
+
+directionToTheRight :: Direction -> Direction
+directionToTheRight Up = Right
+directionToTheRight Down = Left
+directionToTheRight Left = Up
+directionToTheRight Right = Down
+
+
+directionToTheLeft :: Direction -> Direction
+directionToTheLeft Up = Left
+directionToTheLeft Down = Right
+directionToTheLeft Left = Down
+directionToTheLeft Right = Up
+
+
+directionAxis :: Direction -> Axis
+directionAxis Up = Vertical
+directionAxis Down = Vertical
+directionAxis Left = Horizontal
+directionAxis Right = Horizontal
+
+
+directionSign :: Direction -> Int
+directionSign Up = -1
+directionSign Down = 1
+directionSign Left = -1
+directionSign Right = 1
+
+
+otherAxis :: Axis -> Axis
+otherAxis Horizontal = Vertical
+otherAxis Vertical = Horizontal
+
+
+valueOfAxis :: (Int, Int) -> Axis -> Int
+valueOfAxis (x, _) Horizontal = x
+valueOfAxis (_, y) Vertical = y
+
+
+locationFromAxes :: [(Int, Axis)] -> (Int, Int)
+locationFromAxes [(x, Horizontal), (y, Vertical)] = (x, y)
+locationFromAxes [(y, Vertical), (x, Horizontal)] = (x, y)
 
 
 keyDown :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
