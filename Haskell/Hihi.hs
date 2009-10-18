@@ -66,6 +66,7 @@ data MovableObjectType = Emerald
                          deriving (Eq, Show)
 data Animation = Animation AnimationType Word64
 data AnimationType = Moving Direction
+                   | ChurningFeet Direction
 
 
 demoLevel :: Level
@@ -315,11 +316,17 @@ draw drawable gameContextPtr = do
                       Just (Animation (Moving direction) _) ->
                           distanceInDirection (24 - (animationFrame * 2))
                                               $ oppositeDirection direction
+                      Just (Animation (ChurningFeet _) _) -> (0, 0)
           tile <- return $ case object of
                              Emerald -> 5
                              Hihi -> case maybeAnimation of
                                        Nothing -> 9
                                        Just (Animation (Moving _) _) -> 
+                                           case hihiWalkAnimationFrame animationFrame of
+                                             0 -> 9
+                                             1 -> 10
+                                             2 -> 11
+                                       Just (Animation (ChurningFeet _) _) -> 
                                            case hihiWalkAnimationFrame animationFrame of
                                              0 -> 9
                                              1 -> 10
@@ -503,7 +510,9 @@ attemptMovement gameContext direction = do
                   _ -> return ())
            overlappingObjects
       return ()
-    _ -> return ()
+    _ -> do
+      startAnimation gameContext protagonistIndex (ChurningFeet direction)
+      return ()
 
 
 collectHeart :: GameContext -> (Int, Int) -> IO ()
