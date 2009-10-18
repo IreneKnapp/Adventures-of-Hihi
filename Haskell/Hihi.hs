@@ -22,7 +22,8 @@ data GameContext = GameContext {
       audioBufferIDsMVar :: MVar [AL.Buffer],
       audioSourceIDsMVar :: MVar [AL.Source],
       drawableMVar :: MVar EF.Drawable,
-      keyListMVar :: MVar [EF.Keycode],
+      pressedKeyListMVar :: MVar [EF.Keycode],
+      stickyKeyListMVar :: MVar [EF.Keycode],
       startupTimeMVar :: MVar Word64,
       activeLevelMVar :: MVar ActiveLevel,
       lastPlayedBlipAtFrameMVar :: MVar Int,
@@ -88,6 +89,7 @@ demoLevel =
                                (8, 3) -> Just (Fixed $ Arrow Right)
                                (9, 4) -> Just (Fixed $ Arrow Right)
                                (9, 1) -> Just $ Fixed Heart
+                               (9, 9) -> Just $ Fixed Heart
                                (8, 2) -> Just $ Movable Emerald
                                (8, 8) -> Just $ Movable Emerald
                                (5, 5) -> Just $ Movable Hihi
@@ -110,7 +112,8 @@ main = do
   audioBufferIDsMVar <- newEmptyMVar
   audioSourceIDsMVar <- newEmptyMVar
   drawableMVar <- newEmptyMVar
-  keyListMVar <- newMVar []
+  pressedKeyListMVar <- newMVar []
+  stickyKeyListMVar <- newMVar []
   startupTimeMVar <- newEmptyMVar
   activeLevelMVar <- newEmptyMVar
   lastPlayedBlipAtFrameMVar <- newEmptyMVar
@@ -120,7 +123,8 @@ main = do
                    audioBufferIDsMVar = audioBufferIDsMVar,
                    audioSourceIDsMVar = audioSourceIDsMVar,
                    drawableMVar = drawableMVar,
-                   keyListMVar = keyListMVar,
+                   pressedKeyListMVar = pressedKeyListMVar,
+                   stickyKeyListMVar = stickyKeyListMVar,
                    startupTimeMVar = startupTimeMVar,
                    activeLevelMVar = activeLevelMVar,
                    lastPlayedBlipAtFrameMVar = lastPlayedBlipAtFrameMVar,
@@ -166,7 +170,7 @@ main = do
   EF.drawableSetDrawCallback drawable drawCallback gameContextPtr
   
   frameCallback <- EF.mkTimerCallback frame
-  EF.timeNewRepeatingTimer 16 frameCallback gameContextPtr
+  EF.timeNewRepeatingTimer (fromIntegral frameDuration) frameCallback gameContextPtr
   
   keyDownCallback <- EF.mkEventCallback keyDown
   EF.inputSetKeyDownCallback drawable keyDownCallback gameContextPtr
@@ -257,11 +261,15 @@ initGL gameContext drawable = do
   return ()
 
 
+frameDuration :: Int
+frameDuration = 16
+
+
 elapsedFrames :: GameContext -> IO Word64
 elapsedFrames gameContext = do
   currentTime <- EF.timeUnixEpoch
   startupTime <- readMVar $ startupTimeMVar gameContext
-  return $ (currentTime - startupTime) `div` 16
+  return $ (currentTime - startupTime) `div` (fromIntegral frameDuration)
 
 
 draw :: EF.Drawable -> Ptr () -> IO ()
@@ -424,10 +432,15 @@ frame timer gameContextPtr = do
   if currentFrame >= fromIntegral nextMovementFrame
      then do
        processOverlappingObjects gameContext
-       direction <- movementDirection gameContext
-       case direction of
+       maybeDirection <- movementDirection gameContext
+       case maybeDirection of
          Just direction -> attemptMovement gameContext direction
-         Nothing -> return ()
+         Nothing -> do
+            maybeAbortedDirection <- abortedMovementDirection gameContext
+            case maybeAbortedDirection of
+              Nothing -> return ()
+              Just direction -> showAbortedMovement gameContext direction
+       resetStickyKeys gameContext
        swapMVar (lastAttemptedMovementAtFrameMVar gameContext) nextMovementFrame
        return ()
      else return ()
@@ -504,6 +517,17 @@ attemptMovement gameContext direction = do
     _ -> do
       startAnimation gameContext protagonistIndex (ChurningFeet direction)
       return ()
+
+
+showAbortedMovement :: GameContext -> Direction -> IO ()
+showAbortedMovement gameContext direction = do
+  ActiveLevel { activeLevelMovableObjects = movableObjects }
+    <- readMVar $ activeLevelMVar gameContext
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, object, _) -> case object of
+                                                                       Hihi -> True
+                                                                       _ -> False)
+                                                    movableObjects
+  startAnimation gameContext protagonistIndex (ChurningFeet direction)
 
 
 processOverlappingObjects :: GameContext -> IO ()
@@ -774,18 +798,28 @@ keyDown :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
 keyDown drawable event gameContextPtr = do
   gameContext <- deRefStablePtr $ castPtrToStablePtr gameContextPtr
   newKey <- EF.eventKeycode event
-  keyList <- takeMVar $ keyListMVar gameContext
-  keyList' <- return $ sort $ nub $ keyList ++ [newKey]
-  putMVar (keyListMVar gameContext) keyList'
+  pressedKeyList <- takeMVar $ pressedKeyListMVar gameContext
+  pressedKeyList' <- return $ sort $ nub $ pressedKeyList ++ [newKey]
+  putMVar (pressedKeyListMVar gameContext) pressedKeyList'
+  stickyKeyList <- takeMVar $ stickyKeyListMVar gameContext
+  stickyKeyList' <- return $ sort $ nub $ stickyKeyList ++ [newKey]
+  putMVar (stickyKeyListMVar gameContext) stickyKeyList'
 
 
 keyUp :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
 keyUp drawable event gameContextPtr = do
   gameContext <- deRefStablePtr $ castPtrToStablePtr gameContextPtr
   removedKey <- EF.eventKeycode event
-  keyList <- takeMVar $ keyListMVar gameContext
-  keyList' <- return $ delete removedKey keyList
-  putMVar (keyListMVar gameContext) keyList'
+  pressedKeyList <- takeMVar $ pressedKeyListMVar gameContext
+  pressedKeyList' <- return $ delete removedKey pressedKeyList
+  putMVar (pressedKeyListMVar gameContext) pressedKeyList'
+
+
+resetStickyKeys :: GameContext -> IO ()
+resetStickyKeys gameContext = do
+  pressedKeyList <- readMVar $ pressedKeyListMVar gameContext
+  swapMVar (stickyKeyListMVar gameContext) pressedKeyList
+  return ()
 
 
 cursorUpKeycode :: EF.Keycode
@@ -806,16 +840,27 @@ cursorRightKeycode = unsafePerformIO $ EF.inputKeycodeByName "cursor right"
 
 movementDirection :: GameContext -> IO (Maybe Direction)
 movementDirection gameContext = do
-  keyList <- readMVar $ keyListMVar gameContext
-  return $ if elem cursorUpKeycode keyList
-           then Just Up
-           else if elem cursorDownKeycode keyList
-                then Just Down
-                else if elem cursorLeftKeycode keyList
-                     then Just Left
-                     else if elem cursorRightKeycode keyList
-                          then Just Right
-                          else Nothing
+  keyList <- readMVar $ pressedKeyListMVar gameContext
+  return $ movementDirectionFromKeyList keyList
+
+
+abortedMovementDirection :: GameContext -> IO (Maybe Direction)
+abortedMovementDirection gameContext = do
+  keyList <- readMVar $ stickyKeyListMVar gameContext
+  return $ movementDirectionFromKeyList keyList
+
+
+movementDirectionFromKeyList :: [EF.Keycode] -> Maybe Direction
+movementDirectionFromKeyList keyList =
+  if elem cursorUpKeycode keyList
+  then Just Up
+  else if elem cursorDownKeycode keyList
+       then Just Down
+       else if elem cursorLeftKeycode keyList
+            then Just Left
+            else if elem cursorRightKeycode keyList
+                 then Just Right
+                 else Nothing
 
 
 allLocations :: [(Int, Int)]
