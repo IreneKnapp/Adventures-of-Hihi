@@ -64,7 +64,8 @@ data FixedObjectType = Heart
 data MovableObjectType = Emerald
                        | Hihi
                          deriving (Eq, Show)
-data Animation = Moving Direction
+data Animation = Animation AnimationType Word64
+data AnimationType = Moving Direction
 
 
 demoLevel :: Level
@@ -255,13 +256,18 @@ initGL gameContext drawable = do
   return ()
 
 
+elapsedFrames :: GameContext -> IO Word64
+elapsedFrames gameContext = do
+  currentTime <- EF.timeUnixEpoch
+  startupTime <- readMVar $ startupTimeMVar gameContext
+  return $ (currentTime - startupTime) `div` 16
+
+
 draw :: EF.Drawable -> Ptr () -> IO ()
 draw drawable gameContextPtr = do
   gameContext <- deRefStablePtr $ castPtrToStablePtr gameContextPtr
   
-  currentTime <- EF.timeUnixEpoch
-  startupTime <- readMVar $ startupTimeMVar gameContext
-  elapsedFrames <- return $ (currentTime - startupTime) `div` 20
+  currentFrame <- elapsedFrames gameContext
   
   GL.clearColor $= GL.Color4 0.0 0.0 0.5 1.0
   GL.clear [GL.ColorBuffer, GL.DepthBuffer]
@@ -278,7 +284,7 @@ draw drawable gameContextPtr = do
                     Grass -> drawTile gameContext (x*2, y*2) (0, 0) 1 Unrotated
                     Water -> let which = (x
                                           + (y*levelSize)
-                                          + (fromIntegral $ elapsedFrames `div` 20))
+                                          + (fromIntegral $ currentFrame `div` 20))
                                          `mod` 2
                              in case which of
                                   0 -> drawTile gameContext (x*2, y*2) (0, 0) 2 Unrotated
@@ -298,10 +304,24 @@ draw drawable gameContextPtr = do
                         in drawTile gameContext (x*2, y*2) (0, 0) 8 rotation)
                [0..levelSize-1])
        [0..levelSize-1]
-  mapM (\((x, y), object, animation) -> do
+  mapM (\((x, y), object, maybeAnimation) -> do
           case object of
             Emerald -> drawTile gameContext (x, y) (0, 0) 5 Unrotated
-            Hihi -> drawTile gameContext (x, y) (0, 0) 9 Unrotated)
+            Hihi -> case maybeAnimation of
+                      Nothing -> drawTile gameContext (x, y) (0, 0) 9 Unrotated
+                      Just (Animation (Moving direction) animationStart) -> do
+                             animationFrame
+                                 <- return $ fromIntegral
+                                    $ min 12 $ currentFrame - animationStart
+                             drawTile gameContext
+                                      (x, y)
+                                      (distanceInDirection (24 - (animationFrame * 2))
+                                                           $ oppositeDirection direction)
+                                      (case hihiWalkAnimationFrame animationFrame of
+                                         0 -> 9
+                                         1 -> 10
+                                         2 -> 11)
+                                      Unrotated)
        $ activeLevelMovableObjects activeLevel
   
   drawable <- readMVar $ drawableMVar gameContext
@@ -310,14 +330,30 @@ draw drawable gameContextPtr = do
   return ()
 
 
+hihiWalkAnimationFrame :: Int -> Int
+hihiWalkAnimationFrame 0 = 1
+hihiWalkAnimationFrame 1 = 1
+hihiWalkAnimationFrame 2 = 1
+hihiWalkAnimationFrame 3 = 1
+hihiWalkAnimationFrame 4 = 0
+hihiWalkAnimationFrame 5 = 0
+hihiWalkAnimationFrame 6 = 0
+hihiWalkAnimationFrame 7 = 0
+hihiWalkAnimationFrame 8 = 2
+hihiWalkAnimationFrame 9 = 2
+hihiWalkAnimationFrame 10 = 2
+hihiWalkAnimationFrame 11 = 2
+hihiWalkAnimationFrame 12 = 0
+
+
 drawTile :: GameContext -> (Int, Int) -> (Int, Int) -> Int -> TileOrientation -> IO ()
 drawTile gameContext (x, y) (xOffset, yOffset) tile orientation = do
   GL.texture GL.Texture2D $= GL.Enabled
   textureIDs <- readMVar $ textureIDsMVar gameContext
   GL.textureBinding GL.Texture2D $= Just (textureIDs !! tile)
-  top <- return $ fromIntegral $ (snd drawableSize) - (y * (tileSize `div` 2))
+  top <- return $ fromIntegral $ (snd drawableSize) - (y * (tileSize `div` 2)) - yOffset
       :: IO GL.GLshort
-  left <- return $ fromIntegral $ x * (tileSize `div` 2) :: IO GL.GLshort
+  left <- return $ fromIntegral $ x * (tileSize `div` 2) + xOffset :: IO GL.GLshort
   bottom <- return $ fromIntegral $ top - fromIntegral tileSize :: IO GL.GLshort
   right <- return $ fromIntegral $ left + fromIntegral tileSize :: IO GL.GLshort
   textureMin <- return 0.0 :: IO GL.GLfloat
@@ -355,16 +391,14 @@ frame timer gameContextPtr = do
   drawable <- readMVar $ drawableMVar gameContext
   EF.drawableRedraw drawable
   
-  currentTime <- EF.timeUnixEpoch
-  startupTime <- readMVar $ startupTimeMVar gameContext
-  elapsedFrames <- return $ (currentTime - startupTime) `div` 16
+  currentFrame <- elapsedFrames gameContext
   
   lastPlayedBlipAtFrame <- readMVar $ lastPlayedBlipAtFrameMVar gameContext
   nextBlipFrame <- return $ if lastPlayedBlipAtFrame == -1 
                             then 0
                             else lastPlayedBlipAtFrame + 100
   
-  if elapsedFrames >= fromIntegral nextBlipFrame
+  if currentFrame >= fromIntegral nextBlipFrame
      then do
        sourceIDs <- readMVar $ audioSourceIDsMVar gameContext
        -- AL.play [(sourceIDs !! 1)]
@@ -377,7 +411,7 @@ frame timer gameContextPtr = do
                                 then 0
                                 else lastAttemptedMovementAtFrame + 12
   
-  if elapsedFrames >= fromIntegral nextMovementFrame
+  if currentFrame >= fromIntegral nextMovementFrame
      then do
        direction <- movementDirection gameContext
        case direction of
@@ -453,6 +487,7 @@ attemptMovement gameContext direction = do
     [] -> do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
       updateLocation gameContext protagonistIndex protagonistLocation'
+      startAnimation gameContext protagonistIndex (Moving direction)
       overlappingObjects <- objectsInLocation gameContext protagonistLocation'
       overlappingObjects
           <- return $ filter (\object -> object /= Movable Hihi) overlappingObjects
@@ -609,11 +644,27 @@ updateLocation gameContext movableObjectIndex newLocation = do
   activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
       <- takeMVar $ activeLevelMVar gameContext
   movableObjects' <- return $ concat [take movableObjectIndex movableObjects,
-                                      [(newLocation,
-                                        (\(_, object, _) -> object)
-                                        $ movableObjects !! movableObjectIndex,
-                                        (\(_, _, animation) -> animation)
-                                        $ movableObjects !! movableObjectIndex)],
+                                      let (_, object, animation)
+                                              = movableObjects !! movableObjectIndex
+                                      in [(newLocation, object, animation)],
+                                      drop (movableObjectIndex+1) movableObjects]
+  activeLevel' <- return $ activeLevel {
+                    activeLevelMovableObjects = movableObjects'
+                  }
+  putMVar (activeLevelMVar gameContext) activeLevel'
+
+
+startAnimation :: GameContext -> Int -> AnimationType -> IO ()
+startAnimation gameContext movableObjectIndex animationType = do
+  activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
+      <- takeMVar $ activeLevelMVar gameContext
+  startTime <- elapsedFrames gameContext
+  movableObjects' <- return $ concat [take movableObjectIndex movableObjects,
+                                      let (location, object, _)
+                                              = movableObjects !! movableObjectIndex
+                                      in [(location,
+                                           object,
+                                           Just $ Animation animationType startTime)],
                                       drop (movableObjectIndex+1) movableObjects]
   activeLevel' <- return $ activeLevel {
                     activeLevelMovableObjects = movableObjects'
@@ -661,6 +712,12 @@ directionSign Up = -1
 directionSign Down = 1
 directionSign Left = -1
 directionSign Right = 1
+
+
+distanceInDirection :: Int -> Direction -> (Int, Int)
+distanceInDirection distance direction =
+    locationFromAxes [(distance * directionSign direction, directionAxis direction),
+                      (0, otherAxis $ directionAxis direction)]
 
 
 otherAxis :: Axis -> Axis
