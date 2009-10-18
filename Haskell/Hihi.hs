@@ -423,6 +423,7 @@ frame timer gameContextPtr = do
   
   if currentFrame >= fromIntegral nextMovementFrame
      then do
+       processOverlappingObjects gameContext
        direction <- movementDirection gameContext
        case direction of
          Just direction -> attemptMovement gameContext direction
@@ -499,20 +500,33 @@ attemptMovement gameContext direction = do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
       updateLocation gameContext protagonistIndex protagonistLocation'
       startAnimation gameContext protagonistIndex (Moving direction)
-      overlappingObjects <- objectsInLocation gameContext protagonistLocation'
-      overlappingObjects
-          <- return $ filter (\object -> object /= Movable Hihi) overlappingObjects
-      mapM (\object ->
-                case object of
-                  Fixed Heart
-                      -> collectHeart gameContext
-                                      $ locationMappedToFixedGrid protagonistLocation'
-                  _ -> return ())
-           overlappingObjects
       return ()
     _ -> do
       startAnimation gameContext protagonistIndex (ChurningFeet direction)
       return ()
+
+
+processOverlappingObjects :: GameContext -> IO ()
+processOverlappingObjects gameContext = do
+  ActiveLevel { activeLevelMovableObjects = movableObjects }
+    <- readMVar $ activeLevelMVar gameContext
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, object, _) -> case object of
+                                                                       Hihi -> True
+                                                                       _ -> False)
+                                                    movableObjects
+  protagonistLocation
+      <- return $ (\(location, _, _) -> location) $ movableObjects !! protagonistIndex
+  overlappingObjects <- objectsInLocation gameContext protagonistLocation
+  overlappingObjects
+    <- return $ filter (\object -> object /= Movable Hihi) overlappingObjects
+  mapM (\object ->
+            case object of
+              Fixed Heart
+                  -> collectHeart gameContext
+                     $ locationMappedToFixedGrid protagonistLocation
+              _ -> return ())
+       overlappingObjects
+  return ()
 
 
 collectHeart :: GameContext -> (Int, Int) -> IO ()
