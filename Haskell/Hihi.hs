@@ -305,23 +305,26 @@ draw drawable gameContextPtr = do
                [0..levelSize-1])
        [0..levelSize-1]
   mapM (\((x, y), object, maybeAnimation) -> do
-          case object of
-            Emerald -> drawTile gameContext (x, y) (0, 0) 5 Unrotated
-            Hihi -> case maybeAnimation of
-                      Nothing -> drawTile gameContext (x, y) (0, 0) 9 Unrotated
-                      Just (Animation (Moving direction) animationStart) -> do
-                             animationFrame
-                                 <- return $ fromIntegral
-                                    $ min 12 $ currentFrame - animationStart
-                             drawTile gameContext
-                                      (x, y)
-                                      (distanceInDirection (24 - (animationFrame * 2))
-                                                           $ oppositeDirection direction)
-                                      (case hihiWalkAnimationFrame animationFrame of
-                                         0 -> 9
-                                         1 -> 10
-                                         2 -> 11)
-                                      Unrotated)
+          animationFrame <- return $ case maybeAnimation of
+                                       Nothing -> 0
+                                       Just (Animation _ animationStart) ->
+                                           fromIntegral
+                                           $ min 12 $ currentFrame - animationStart
+          offset <- return $ case maybeAnimation of
+                      Nothing -> (0, 0)
+                      Just (Animation (Moving direction) _) ->
+                          distanceInDirection (24 - (animationFrame * 2))
+                                              $ oppositeDirection direction
+          tile <- return $ case object of
+                             Emerald -> 5
+                             Hihi -> case maybeAnimation of
+                                       Nothing -> 9
+                                       Just (Animation (Moving _) _) -> 
+                                           case hihiWalkAnimationFrame animationFrame of
+                                             0 -> 9
+                                             1 -> 10
+                                             2 -> 11
+          drawTile gameContext (x, y) offset tile Unrotated)
        $ activeLevelMovableObjects activeLevel
   
   drawable <- readMVar $ drawableMVar gameContext
@@ -473,6 +476,7 @@ attemptMovement gameContext direction = do
                   obstructionLocation' <- return $ locationInDirection obstructionLocation
                                                                        direction
                   updateLocation gameContext obstructionIndex obstructionLocation'
+                  startAnimation gameContext obstructionIndex (Moving direction)
                 _ -> return ())
            specialMovementObstructions
       return ()
