@@ -46,7 +46,7 @@ data Level = Level {
 data ActiveLevel = ActiveLevel {
       activeLevelGround :: Array (Int, Int) GroundType,
       activeLevelFixedObjects :: Array (Int, Int) (Maybe FixedObjectType),
-      activeLevelMovableObjects :: [((Int, Int), MovableObjectType, Maybe Animation)]
+      activeLevelMovableObjects :: [((Int, Int), MovableObjectType, Animation)]
     }
 
 data GroundType = Ground
@@ -67,8 +67,11 @@ data MovableObjectType = Emerald
                        | Snake
                          deriving (Eq, Show)
 data Animation = Animation AnimationType Word64
-data AnimationType = Moving Direction
+data AnimationType = Unanimated
+                   | Moving Direction
                    | ChurningFeet Direction
+                   | Standing Direction
+                     deriving (Eq, Show)
 
 
 demoLevel :: Level
@@ -317,36 +320,12 @@ draw drawable gameContextPtr = do
                         in drawTile gameContext (x*2, y*2) (0, 0) 8 rotation)
                [0..levelSize-1])
        [0..levelSize-1]
-  mapM (\((x, y), object, maybeAnimation) -> do
-          animationFrame <- return $ case maybeAnimation of
-                                       Nothing -> 0
-                                       Just (Animation _ animationStart) ->
-                                           fromIntegral
-                                           $ min 12 $ currentFrame - animationStart
-          offset <- return $ case maybeAnimation of
-                      Nothing -> (0, 0)
-                      Just (Animation (Moving direction) _) ->
-                          distanceInDirection (24 - (animationFrame * 2))
-                                              $ oppositeDirection direction
-                      Just (Animation (ChurningFeet _) _) -> (0, 0)
-          tile <- return $ case object of
-                             Emerald -> 5
-                             Hihi -> case maybeAnimation of
-                                       Nothing -> 9
-                                       Just (Animation (Moving _) _) -> 
-                                           case hihiWalkAnimationFrame animationFrame of
-                                             0 -> 9
-                                             1 -> 10
-                                             2 -> 11
-                                       Just (Animation (ChurningFeet _) _) -> 
-                                           case hihiWalkAnimationFrame animationFrame of
-                                             0 -> 9
-                                             1 -> 10
-                                             2 -> 11
-                             Snake -> case (animationFrame `mod` 2) of
-                                        0 -> 12
-                                        1 -> 13
-          drawTile gameContext (x, y) offset tile Unrotated)
+  mapM (\((x, y), object, (Animation animationType animationStart)) -> do
+          animationFrame <- return $ fromIntegral $ currentFrame - animationStart
+          offset <- return $ animationFrameOffset object animationType animationFrame
+          (tile, orientation) <- return
+                                 $ animationFrameTile object animationType animationFrame
+          drawTile gameContext (x, y) offset tile orientation)
        $ activeLevelMovableObjects activeLevel
   
   drawable <- readMVar $ drawableMVar gameContext
@@ -355,20 +334,44 @@ draw drawable gameContextPtr = do
   return ()
 
 
-hihiWalkAnimationFrame :: Int -> Int
-hihiWalkAnimationFrame 0 = 1
-hihiWalkAnimationFrame 1 = 1
-hihiWalkAnimationFrame 2 = 1
-hihiWalkAnimationFrame 3 = 1
-hihiWalkAnimationFrame 4 = 0
-hihiWalkAnimationFrame 5 = 0
-hihiWalkAnimationFrame 6 = 0
-hihiWalkAnimationFrame 7 = 0
-hihiWalkAnimationFrame 8 = 2
-hihiWalkAnimationFrame 9 = 2
-hihiWalkAnimationFrame 10 = 2
-hihiWalkAnimationFrame 11 = 2
-hihiWalkAnimationFrame 12 = 0
+animationFrameOffset :: MovableObjectType -> AnimationType -> Int -> (Int, Int)
+animationFrameOffset _ (Moving direction) frame =
+    distanceInDirection (12 - (min 12 frame)) $ oppositeDirection direction
+animationFrameOffset _ _ _ = (0, 0)
+
+
+animationFrameTile :: MovableObjectType -> AnimationType -> Int -> (Int, TileOrientation)
+
+animationFrameTile Emerald _ _ = (5, Unrotated)
+
+animationFrameTile Hihi Unanimated _ = (9, Unrotated)
+animationFrameTile Hihi (Moving _) 0 = (10, Unrotated)
+animationFrameTile Hihi (Moving _) 1 = (10, Unrotated)
+animationFrameTile Hihi (Moving _) 2 = (10, Unrotated)
+animationFrameTile Hihi (Moving _) 3 = (10, Unrotated)
+animationFrameTile Hihi (Moving _) 4 = (9, Unrotated)
+animationFrameTile Hihi (Moving _) 5 = (9, Unrotated)
+animationFrameTile Hihi (Moving _) 6 = (9, Unrotated)
+animationFrameTile Hihi (Moving _) 7 = (9, Unrotated)
+animationFrameTile Hihi (Moving _) 8 = (11, Unrotated)
+animationFrameTile Hihi (Moving _) 9 = (11, Unrotated)
+animationFrameTile Hihi (Moving _) 10 = (11, Unrotated)
+animationFrameTile Hihi (Moving _) 11 = (11, Unrotated)
+animationFrameTile Hihi (Moving _) _ = (9, Unrotated)
+animationFrameTile Hihi (ChurningFeet direction) n
+    = animationFrameTile Hihi (Moving direction) n
+
+animationFrameTile Snake Unanimated _ = (12, Unrotated)
+animationFrameTile Snake (Standing Left) 0 = (12, Unrotated)
+animationFrameTile Snake (Standing Left) 1 = (13, Unrotated)
+animationFrameTile Snake (Standing Right) 0 = (12, FlippedHorizontal)
+animationFrameTile Snake (Standing Right) 1 = (13, FlippedHorizontal)
+animationFrameTile Snake animation@(Standing _) frame
+    = animationFrameTile Snake animation (frame `mod` 2)
+
+animationFrameTile object animation frame
+    = error $ "No animation tile defined for " ++ (show object)
+      ++ " " ++ (show animation) ++ " " ++ (show frame)
 
 
 drawTile :: GameContext -> (Int, Int) -> (Int, Int) -> Int -> TileOrientation -> IO ()
@@ -376,9 +379,9 @@ drawTile gameContext (x, y) (xOffset, yOffset) tile orientation = do
   GL.texture GL.Texture2D $= GL.Enabled
   textureIDs <- readMVar $ textureIDsMVar gameContext
   GL.textureBinding GL.Texture2D $= Just (textureIDs !! tile)
-  top <- return $ fromIntegral $ (snd drawableSize) - (y * (tileSize `div` 2)) - yOffset
+  top <- return $ fromIntegral $ (snd drawableSize) - (y * (tileSize `div` 2)) - yOffset*2
       :: IO GL.GLshort
-  left <- return $ fromIntegral $ x * (tileSize `div` 2) + xOffset :: IO GL.GLshort
+  left <- return $ fromIntegral $ x * (tileSize `div` 2) + xOffset*2 :: IO GL.GLshort
   bottom <- return $ fromIntegral $ top - fromIntegral tileSize :: IO GL.GLshort
   right <- return $ fromIntegral $ left + fromIntegral tileSize :: IO GL.GLshort
   textureMin <- return 0.0 :: IO GL.GLfloat
@@ -722,7 +725,7 @@ startAnimation gameContext movableObjectIndex animationType = do
                                               = movableObjects !! movableObjectIndex
                                       in [(location,
                                            object,
-                                           Just $ Animation animationType startTime)],
+                                           Animation animationType startTime)],
                                       drop (movableObjectIndex+1) movableObjects]
   activeLevel' <- return $ activeLevel {
                     activeLevelMovableObjects = movableObjects'
@@ -902,7 +905,7 @@ buildActiveLevel level =
                                                Just (Movable movableObject)
                                                     -> [((x*2, y*2),
                                                          movableObject,
-                                                         Nothing)]
+                                                         Animation Unanimated 0)]
                                                _ -> [])
                                allLocations
     in ActiveLevel {
