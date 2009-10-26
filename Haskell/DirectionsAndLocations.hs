@@ -82,6 +82,10 @@ locationMappedToFixedGrid :: (Int, Int) -> (Int, Int)
 locationMappedToFixedGrid (x, y) = (x `div` 2, y `div` 2)
 
 
+locationMappedToMovableGrid :: (Int, Int) -> (Int, Int)
+locationMappedToMovableGrid (x, y) = (x * 2, y * 2)
+
+
 possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
 possibleFixedObstructionLocationsInDirection location direction
     = let primaryAxis = directionAxis direction

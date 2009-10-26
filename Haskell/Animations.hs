@@ -1,9 +1,36 @@
 module Animations where
 
+import Control.Concurrent
+import Data.Array
+import Foreign
+import qualified Graphics.Rendering.OpenGL as GL
+import qualified Graphics.UI.EmeraldFrame as EF
 import Prelude hiding (Left, Right)
+import qualified Sound.OpenAL as AL
 
-import Types
 import DirectionsAndLocations
+import Parameters
+import Types
+
+
+groundTile :: GroundType -> (Int, Int) -> Word64 -> (Int, TileOrientation)
+groundTile Ground _ _ = (0, Unrotated)
+groundTile Grass _ _ = (1, Unrotated)
+groundTile Water (x, y) frame =
+    let which = (x + (y * levelSize) + (fromIntegral $ frame `div` 20)) `mod` 2
+    in case which of
+         0 -> (2, Unrotated)
+         1 -> (3, Unrotated)
+
+
+fixedObjectTile :: FixedObjectType -> (Int, TileOrientation)
+fixedObjectTile Heart = (4, Unrotated)
+fixedObjectTile Rock = (6, Unrotated)
+fixedObjectTile Tree = (7, Unrotated)
+fixedObjectTile (Arrow Right) = (8, Unrotated)
+fixedObjectTile (Arrow Down) = (8, RotatedRight)
+fixedObjectTile (Arrow Left) = (8, Rotated180)
+fixedObjectTile (Arrow Up) = (8, RotatedLeft)
 
 
 animationFrameOffset :: MovableObjectType -> AnimationType -> Int -> (Int, Int)

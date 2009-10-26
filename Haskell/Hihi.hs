@@ -19,6 +19,7 @@ import System.IO.Unsafe
 import Animations
 import DirectionsAndLocations
 import Input
+import Parameters
 import Types
 
 
@@ -159,18 +160,6 @@ initAL gameContext = do
   return ()
 
 
-tileSize :: Int
-tileSize = 48
-
-
-levelSize :: Int
-levelSize = 11
-
-
-drawableSize :: (Int, Int)
-drawableSize = (tileSize*levelSize + 160, tileSize*levelSize)
-
-
 loadTextures :: GameContext -> EF.Drawable -> IO ()
 loadTextures gameContext drawable = do
   EF.drawableMakeCurrent drawable
@@ -242,30 +231,18 @@ draw drawable gameContextPtr = do
   activeLevel <- readMVar $ activeLevelMVar gameContext
   mapM (\y -> do
           mapM (\x -> do
-                  let tile = activeLevelGround activeLevel ! (x, y)
-                  case tile of
-                    Ground -> drawTile gameContext (x*2, y*2) (0, 0) 0 Unrotated
-                    Grass -> drawTile gameContext (x*2, y*2) (0, 0) 1 Unrotated
-                    Water -> let which = (x
-                                          + (y*levelSize)
-                                          + (fromIntegral $ currentFrame `div` 20))
-                                         `mod` 2
-                             in case which of
-                                  0 -> drawTile gameContext (x*2, y*2) (0, 0) 2 Unrotated
-                                  1 -> drawTile gameContext (x*2, y*2) (0, 0) 3 Unrotated
-                  let object = activeLevelFixedObjects activeLevel ! (x, y)
-                  case object of
+                  let location = locationMappedToMovableGrid (x, y)
+                      offset = (0, 0)
+                      terrain = activeLevelGround activeLevel ! (x, y)
+                      (terrainTile, terrainOrientation)
+                          = groundTile terrain (x, y) currentFrame
+                      maybeObject = activeLevelFixedObjects activeLevel ! (x, y)
+                  drawTile gameContext location offset terrainTile terrainOrientation
+                  case maybeObject of
                     Nothing -> return ()
-                    Just Heart -> drawTile gameContext (x*2, y*2) (0, 0) 4 Unrotated
-                    Just Rock -> drawTile gameContext (x*2, y*2) (0, 0) 6 Unrotated
-                    Just Tree -> drawTile gameContext (x*2, y*2) (0, 0) 7 Unrotated
-                    Just (Arrow direction) ->
-                        let rotation = case direction of
-                                         Right -> Unrotated
-                                         Down -> RotatedRight
-                                         Left -> Rotated180
-                                         Up -> RotatedLeft
-                        in drawTile gameContext (x*2, y*2) (0, 0) 8 rotation)
+                    Just object -> do
+                      let (objectTile, objectOrientation) = fixedObjectTile object
+                      drawTile gameContext location offset objectTile objectOrientation)
                [0..levelSize-1])
        [0..levelSize-1]
   mapM (\((x, y), object, (Animation animationType animationStart)) -> do
