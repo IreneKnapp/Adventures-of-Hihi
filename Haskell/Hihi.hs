@@ -724,3 +724,12 @@ activateLevel :: GameContext -> Level -> IO ()
 activateLevel gameContext level = do
   activeLevel <- return $ buildActiveLevel level
   putMVar (activeLevelMVar gameContext) activeLevel
+  mapM (\objectIndex -> do
+          let (location, object, _)
+                  = activeLevelMovableObjects activeLevel !! objectIndex
+          case object of
+            Snake -> do
+              startAnimation gameContext objectIndex (Standing Left)
+            _ -> return ())
+       [0 .. (length $ activeLevelMovableObjects activeLevel) - 1]
+  return ()

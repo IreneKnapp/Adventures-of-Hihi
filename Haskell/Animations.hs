@@ -34,12 +34,12 @@ animationFrameTile Hihi (ChurningFeet direction) n
     = animationFrameTile Hihi (Moving direction) n
 
 animationFrameTile Snake Unanimated _ = (12, Unrotated)
-animationFrameTile Snake (Standing Left) 0 = (12, Unrotated)
-animationFrameTile Snake (Standing Left) 1 = (13, Unrotated)
-animationFrameTile Snake (Standing Right) 0 = (12, FlippedHorizontal)
-animationFrameTile Snake (Standing Right) 1 = (13, FlippedHorizontal)
-animationFrameTile Snake animation@(Standing _) frame
-    = animationFrameTile Snake animation (frame `mod` 2)
+animationFrameTile Snake animation@(Standing direction) frame
+    = case ((frame `div` 24) `mod` 2, direction) of
+        (0, Left) -> (12, Unrotated)
+        (0, Right) -> (12, FlippedHorizontal)
+        (1, Left) -> (13, Unrotated)
+        (1, Right) -> (13, FlippedHorizontal)
 
 animationFrameTile object animation frame
     = error $ "No animation tile defined for " ++ (show object)
