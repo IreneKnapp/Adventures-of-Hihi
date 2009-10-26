@@ -64,6 +64,7 @@ data FixedObjectType = Heart
                        deriving (Eq, Show)
 data MovableObjectType = Emerald
                        | Hihi
+                       | Snake
                          deriving (Eq, Show)
 data Animation = Animation AnimationType Word64
 data AnimationType = Moving Direction
@@ -94,6 +95,7 @@ demoLevel =
                                (8, 8) -> Just $ Movable Emerald
                                (5, 5) -> Just $ Movable Hihi
                                (4, 5) -> Just $ Fixed Tree
+                               (4, 4) -> Just $ Movable Snake
                                _ -> Nothing
         objectCell location = (location, object location)
     in Level {
@@ -222,7 +224,7 @@ loadTextures :: GameContext -> EF.Drawable -> IO ()
 loadTextures gameContext drawable = do
   EF.drawableMakeCurrent drawable
   GL.texture GL.Texture2D $= GL.Enabled
-  newTextureIDs <- genObjectNames 12 :: IO [GL.TextureObject]
+  newTextureIDs <- genObjectNames 14 :: IO [GL.TextureObject]
   putMVar (textureIDsMVar gameContext) newTextureIDs
   resourcePath <- EF.configurationResourceDirectory
   mapM (\(resourceName, textureID) -> do
@@ -238,7 +240,9 @@ loadTextures gameContext drawable = do
               "object-arrow.png",
               "character-hihi-down.png",
               "character-hihi-down-walk1.png",
-              "character-hihi-down-walk2.png"]
+              "character-hihi-down-walk2.png",
+              "character-snake-left1.png",
+              "character-snake-left2.png"]
              newTextureIDs
   mapM (\textureID -> do
           GL.textureBinding GL.Texture2D $= Just textureID
@@ -339,6 +343,9 @@ draw drawable gameContextPtr = do
                                              0 -> 9
                                              1 -> 10
                                              2 -> 11
+                             Snake -> case (animationFrame `mod` 2) of
+                                        0 -> 12
+                                        1 -> 13
           drawTile gameContext (x, y) offset tile Unrotated)
        $ activeLevelMovableObjects activeLevel
   
