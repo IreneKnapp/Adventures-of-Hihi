@@ -806,10 +806,16 @@ keyDown drawable event gameContextPtr = do
   gameContext <- deRefStablePtr $ castPtrToStablePtr gameContextPtr
   newKey <- EF.eventKeycode event
   pressedKeyList <- takeMVar $ pressedKeyListMVar gameContext
-  pressedKeyList' <- return $ sort $ nub $ pressedKeyList ++ [newKey]
+  pressedKeyList' <- return $ if (elem newKey pressedKeyList
+                                  || (not $ keycodeIsOfInterest newKey))
+                                 then pressedKeyList
+                                 else [newKey] ++ pressedKeyList
   putMVar (pressedKeyListMVar gameContext) pressedKeyList'
   stickyKeyList <- takeMVar $ stickyKeyListMVar gameContext
-  stickyKeyList' <- return $ sort $ nub $ stickyKeyList ++ [newKey]
+  stickyKeyList' <- return $ if (elem newKey stickyKeyList
+                                 || (not $ keycodeIsOfInterest newKey))
+                                then stickyKeyList
+                                else [newKey] ++ stickyKeyList
   putMVar (stickyKeyListMVar gameContext) stickyKeyList'
 
 
@@ -857,17 +863,27 @@ abortedMovementDirection gameContext = do
   return $ movementDirectionFromKeyList keyList
 
 
+keycodeIsOfInterest :: EF.Keycode -> Bool
+keycodeIsOfInterest keycode = elem keycode [cursorDownKeycode,
+                                            cursorUpKeycode,
+                                            cursorLeftKeycode,
+                                            cursorRightKeycode]
+
+
 movementDirectionFromKeyList :: [EF.Keycode] -> Maybe Direction
 movementDirectionFromKeyList keyList =
-  if elem cursorUpKeycode keyList
-  then Just Up
-  else if elem cursorDownKeycode keyList
-       then Just Down
-       else if elem cursorLeftKeycode keyList
-            then Just Left
-            else if elem cursorRightKeycode keyList
-                 then Just Right
-                 else Nothing
+    if (length keyList) > 0
+       then let key = keyList !! 0
+            in if key == cursorDownKeycode
+               then Just Down
+               else if key == cursorUpKeycode
+                    then Just Up
+                    else if key == cursorLeftKeycode
+                         then Just Left
+                         else if key == cursorRightKeycode
+                              then Just Right
+                              else Nothing
+       else Nothing
 
 
 allLocations :: [(Int, Int)]
