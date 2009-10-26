@@ -37,6 +37,10 @@ data TileOrientation = Unrotated
                      | RotatedRight
                      | Rotated180
                      | RotatedLeft
+                     | FlippedHorizontal
+                     | FlippedVertical
+                     | FlippedDiagonalNWSE
+                     | FlippedDiagonalNESW
 
 data Level = Level {
       levelGround :: Array (Int, Int) GroundType,
@@ -392,24 +396,40 @@ drawTile gameContext (x, y) (xOffset, yOffset) tile orientation = do
       RotatedRight -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
       Rotated180 -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
       RotatedLeft -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
+      FlippedHorizontal -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
+      FlippedVertical -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
+      FlippedDiagonalNWSE -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
+      FlippedDiagonalNESW -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
     GL.vertex $ GL.Vertex2 left bottom
     case orientation of
       Unrotated -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
       RotatedRight -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
       Rotated180 -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
       RotatedLeft -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
+      FlippedHorizontal -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
+      FlippedVertical -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
+      FlippedDiagonalNWSE -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
+      FlippedDiagonalNESW -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
     GL.vertex $ GL.Vertex2 right bottom
     case orientation of
       Unrotated -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
       RotatedRight -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
       Rotated180 -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
       RotatedLeft -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
+      FlippedHorizontal -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
+      FlippedVertical -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
+      FlippedDiagonalNWSE -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
+      FlippedDiagonalNESW -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
     GL.vertex $ GL.Vertex2 right top
     case orientation of
       Unrotated -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
       RotatedRight -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
       Rotated180 -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
       RotatedLeft -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
+      FlippedHorizontal -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
+      FlippedVertical -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
+      FlippedDiagonalNWSE -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
+      FlippedDiagonalNESW -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
     GL.vertex $ GL.Vertex2 left top
 
 
