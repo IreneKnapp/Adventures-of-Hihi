@@ -42,7 +42,9 @@ data Level = Level {
 data ActiveLevel = ActiveLevel {
       activeLevelGround :: Array (Int, Int) GroundType,
       activeLevelFixedObjects :: Array (Int, Int) (Maybe FixedObjectType),
-      activeLevelMovableObjects :: [((Int, Int), Int, MovableObjectType, Animation)]
+      activeLevelMovableObjects :: [((Int, Int), Int, MovableObjectType, Animation)],
+      activeLevelHeartsTotal :: Int,
+      activeLevelHeartsCollected :: Int
     }
 
 data GroundType = Ground
@@ -61,10 +63,12 @@ data FixedObjectType = Heart
 data MovableObjectType = Emerald
                        | Hihi
                        | Snake
+                       | Skull
                          deriving (Eq, Show)
 data Animation = Animation AnimationType Word64
 data AnimationType = Unanimated
                    | Moving Direction
                    | ChurningFeet Direction
                    | Standing Direction
+                   | Menacing
                      deriving (Eq, Show)

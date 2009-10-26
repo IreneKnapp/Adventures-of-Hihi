@@ -49,6 +49,7 @@ demoLevel =
                                (5, 5) -> Just $ Movable Hihi
                                (4, 5) -> Just $ Fixed Tree
                                (4, 4) -> Just $ Movable Snake
+                               (4, 6) -> Just $ Movable Skull
                                _ -> Nothing
         objectCell location = (location, object location)
     in Level {
@@ -164,7 +165,7 @@ loadTextures :: GameContext -> EF.Drawable -> IO ()
 loadTextures gameContext drawable = do
   EF.drawableMakeCurrent drawable
   GL.texture GL.Texture2D $= GL.Enabled
-  newTextureIDs <- genObjectNames 14 :: IO [GL.TextureObject]
+  newTextureIDs <- genObjectNames 17 :: IO [GL.TextureObject]
   putMVar (textureIDsMVar gameContext) newTextureIDs
   resourcePath <- EF.configurationResourceDirectory
   mapM (\(resourceName, textureID) -> do
@@ -182,7 +183,10 @@ loadTextures gameContext drawable = do
               "character-hihi-down-walk1.png",
               "character-hihi-down-walk2.png",
               "character-snake-left1.png",
-              "character-snake-left2.png"]
+              "character-snake-left2.png",
+              "character-skull1.png",
+              "character-skull2.png",
+              "character-skull3.png"]
              newTextureIDs
   mapM (\textureID -> do
           GL.textureBinding GL.Texture2D $= Just textureID
@@ -387,16 +391,18 @@ attemptMovement gameContext direction = do
                                      obstructionsOneSpaceAway
               case obstructionsOneSpaceAway of
                 [] -> do
-                  obstructionIndex <- return
-                                      $ fromJust
-                                        $ findIndex (\(iLocation, _, i, _) ->
-                                                     iLocation == obstructionLocation
-                                                     && i == obstruction)
-                                                    movableObjects
+                  obstructionID <- return $ (concat
+                                             $ map (\(iLocation, id, i, _) ->
+                                                        if iLocation
+                                                               == obstructionLocation
+                                                           && i == obstruction
+                                                        then [id]
+                                                        else [])
+                                                   movableObjects) !! 0
                   obstructionLocation' <- return $ locationInDirection obstructionLocation
                                                                        direction
-                  updateLocation gameContext obstructionIndex obstructionLocation'
-                  startAnimation gameContext obstructionIndex (Moving direction) 0
+                  updateLocation gameContext obstructionID obstructionLocation'
+                  startAnimation gameContext obstructionID (Moving direction) 0
                 _ -> return ())
            specialMovementObstructions
       return ()
@@ -438,17 +444,45 @@ processOverlappingObjects gameContext = do
 
 collectHeart :: GameContext -> (Int, Int) -> IO ()
 collectHeart gameContext location = do
-  activeLevel@(ActiveLevel { activeLevelFixedObjects = fixedObjects })
+  activeLevel@(ActiveLevel {
+                 activeLevelFixedObjects = fixedObjects,
+                 activeLevelHeartsTotal = heartsTotal,
+                 activeLevelHeartsCollected = heartsCollected
+               })
       <- takeMVar $ activeLevelMVar gameContext
+  
   fixedObjects' <- return $ case fixedObjects ! location of
                               Just Heart -> fixedObjects // [(location, Nothing)]
                               _ -> fixedObjects
+  
+  heartsCollected' <- return $ heartsCollected + 1
+  
   putMVar (activeLevelMVar gameContext)
-          (activeLevel { activeLevelFixedObjects = fixedObjects' })
+          (activeLevel {
+             activeLevelFixedObjects = fixedObjects',
+             activeLevelHeartsCollected = heartsCollected'
+           })
+  
+  if heartsCollected' == heartsTotal
+     then allHeartsCollected gameContext
+     else return ()
   
   audioSourceIDs <- readMVar $ audioSourceIDsMVar gameContext
   AL.play [(audioSourceIDs !! 1)]
 
+
+allHeartsCollected :: GameContext -> IO ()
+allHeartsCollected gameContext = do
+  activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
+      <- readMVar $ activeLevelMVar gameContext
+  mapM (\(_, id, object, _) -> do
+          case object of
+            Skull -> do
+              startAnimation gameContext id Menacing 0
+              moveSkullTowardsPlayer id gameContext
+            _ -> return ())
+       movableObjects
+  return ()
 
 obstructionShouldBlockMovementInDirectionForMover
     :: ObjectOrTerrainType -> Direction -> MovableObjectType -> Bool
@@ -577,6 +611,16 @@ startAnimation gameContext movableObjectID animationType startFrameOffset = do
   putMVar (activeLevelMVar gameContext) activeLevel'
 
 
+getLocation :: GameContext -> Int -> IO (Int, Int)
+getLocation gameContext movableObjectID = do
+  activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
+      <- readMVar $ activeLevelMVar gameContext
+  (location, _, _, _)
+      <- return $ fromJust $ find (\(_, id, _, _) -> id == movableObjectID)
+                                  movableObjects
+  return location
+
+
 getAnimation :: GameContext -> Int -> IO AnimationType
 getAnimation gameContext movableObjectID = do
   activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
@@ -644,6 +688,10 @@ buildActiveLevel gameContext level = do
                                                   -> Just fixedObject
                                               _ -> Nothing)
                                 $ levelObjects level
+  heartsTotal <- return $ sum $ map (\location -> case fixedObjects ! location of
+                                                    Just Heart -> 1
+                                                    _ -> 0)
+                                    allLocations
   hihiID <- newObjectID gameContext
   movableObjectsLists <- mapM (\location@(x, y) -> do
                                    case levelObjects level ! location of
@@ -661,7 +709,9 @@ buildActiveLevel gameContext level = do
   return $ ActiveLevel {
                activeLevelGround = ground,
                activeLevelFixedObjects = fixedObjects,
-               activeLevelMovableObjects = movableObjects
+               activeLevelMovableObjects = movableObjects,
+               activeLevelHeartsTotal = heartsTotal,
+               activeLevelHeartsCollected = 0
              }
 
 
@@ -705,3 +755,21 @@ flipSnake id gameContext = do
                    time <- flipSnakeTime
                    startFrameTimer gameContext time (flipSnake id)
     _ -> return ()
+
+
+moveSkullTowardsPlayer :: Int -> GameContext -> IO ()
+moveSkullTowardsPlayer id gameContext = do
+  skullLocation <- getLocation gameContext id
+  playerLocation <- getLocation gameContext 0
+  let skullPlayerOffset = locationOffset skullLocation playerLocation
+      preferredAxisToMoveAlong = greaterAxis skullPlayerOffset
+      preferredAxisDistanceToMove
+          = - (signum $ valueOfAxis skullPlayerOffset preferredAxisToMoveAlong)
+      preferredNewLocation = locationSum (distanceAlongAxis preferredAxisDistanceToMove
+                                                            preferredAxisToMoveAlong)
+                                         skullLocation
+      preferredDirection = directionAlongAxis preferredAxisDistanceToMove
+                                              preferredAxisToMoveAlong
+  updateLocation gameContext id preferredNewLocation
+  startAnimation gameContext id (Moving preferredDirection) 0
+  startFrameTimer gameContext 24 (moveSkullTowardsPlayer id)

@@ -60,6 +60,20 @@ distanceInDirection distance direction =
                       (0, otherAxis $ directionAxis direction)]
 
 
+distanceAlongAxis :: Int -> Axis -> (Int, Int)
+distanceAlongAxis distance Horizontal = distanceInDirection distance Right
+distanceAlongAxis distance Vertical = distanceInDirection distance Down
+
+
+directionAlongAxis :: Int -> Axis -> Direction
+directionAlongAxis distance axis
+    = case (signum distance, axis) of
+        (1, Horizontal) -> Right
+        (-1, Horizontal) -> Left
+        (1, Vertical) -> Down
+        (-1, Vertical) -> Up
+
+
 otherAxis :: Axis -> Axis
 otherAxis Horizontal = Vertical
 otherAxis Vertical = Horizontal
@@ -85,6 +99,18 @@ locationMappedToFixedGrid (x, y) = (x `div` 2, y `div` 2)
 
 locationMappedToMovableGrid :: (Int, Int) -> (Int, Int)
 locationMappedToMovableGrid (x, y) = (x * 2, y * 2)
+
+
+locationOffset :: (Int, Int) -> (Int, Int) -> (Int, Int)
+locationOffset (x1, y1) (x2, y2) = (x1 - x2, y1 - y2)
+
+
+locationSum :: (Int, Int) -> (Int, Int) -> (Int, Int)
+locationSum (x1, y1) (x2, y2) = (x1 + x2, y1 + y2)
+
+
+greaterAxis :: (Int, Int) -> Axis
+greaterAxis (x, y) = if (abs x) >= (abs y) then Horizontal else Vertical
 
 
 possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]

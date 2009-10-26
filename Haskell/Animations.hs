@@ -74,6 +74,16 @@ animationFrameTile Snake animation@(Standing direction) frame
         (1, Left) -> (13, Unrotated)
         (1, Right) -> (13, FlippedHorizontal)
 
+animationFrameTile Skull Unanimated _ = (14, Unrotated)
+animationFrameTile Skull (Moving _) frame
+    = case (frame `div` 24) `mod` 2 of
+        0 -> (15, Unrotated)
+        1 -> (16, Unrotated)
+animationFrameTile Skull Menacing frame
+    = case (frame `div` 24) `mod` 2 of
+        0 -> (15, Unrotated)
+        1 -> (16, Unrotated)
+
 animationFrameTile object animation frame
     = error $ "No animation tile defined for " ++ (show object)
       ++ " " ++ (show animation) ++ " " ++ (show frame)
