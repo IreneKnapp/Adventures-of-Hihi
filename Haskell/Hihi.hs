@@ -16,66 +16,9 @@ import qualified Sound.OpenAL as AL
 import Sound.OpenAL.AL.BufferInternal (marshalBuffer)
 import System.IO.Unsafe
 
-
-data GameContext = GameContext {
-      textureIDsMVar :: MVar [GL.TextureObject],
-      audioBufferIDsMVar :: MVar [AL.Buffer],
-      audioSourceIDsMVar :: MVar [AL.Source],
-      drawableMVar :: MVar EF.Drawable,
-      pressedKeyListMVar :: MVar [EF.Keycode],
-      stickyKeyListMVar :: MVar [EF.Keycode],
-      startupTimeMVar :: MVar Word64,
-      activeLevelMVar :: MVar ActiveLevel,
-      lastPlayedBlipAtFrameMVar :: MVar Int,
-      lastAttemptedMovementAtFrameMVar :: MVar Int
-    }
-
-data Direction = Right | Left | Up | Down deriving (Eq, Show)
-data Axis = Vertical | Horizontal deriving (Eq, Show)
-
-data TileOrientation = Unrotated
-                     | RotatedRight
-                     | Rotated180
-                     | RotatedLeft
-                     | FlippedHorizontal
-                     | FlippedVertical
-                     | FlippedDiagonalNWSE
-                     | FlippedDiagonalNESW
-
-data Level = Level {
-      levelGround :: Array (Int, Int) GroundType,
-      levelObjects :: Array (Int, Int) (Maybe ObjectType)
-    }
-
-data ActiveLevel = ActiveLevel {
-      activeLevelGround :: Array (Int, Int) GroundType,
-      activeLevelFixedObjects :: Array (Int, Int) (Maybe FixedObjectType),
-      activeLevelMovableObjects :: [((Int, Int), MovableObjectType, Animation)]
-    }
-
-data GroundType = Ground
-                | Grass
-                | Water
-                  deriving (Eq, Show)
-data ObjectType = Fixed FixedObjectType
-                | Movable MovableObjectType
-                  deriving (Eq, Show)
-data ObjectOrTerrainType = Object ObjectType | Terrain GroundType deriving (Eq, Show)
-data FixedObjectType = Heart
-                     | Rock
-                     | Tree
-                     | Arrow Direction
-                       deriving (Eq, Show)
-data MovableObjectType = Emerald
-                       | Hihi
-                       | Snake
-                         deriving (Eq, Show)
-data Animation = Animation AnimationType Word64
-data AnimationType = Unanimated
-                   | Moving Direction
-                   | ChurningFeet Direction
-                   | Standing Direction
-                     deriving (Eq, Show)
+import Animations
+import DirectionsAndLocations
+import Types
 
 
 demoLevel :: Level
@@ -336,46 +279,6 @@ draw drawable gameContextPtr = do
   EF.drawableSwapBuffers drawable
   
   return ()
-
-
-animationFrameOffset :: MovableObjectType -> AnimationType -> Int -> (Int, Int)
-animationFrameOffset _ (Moving direction) frame =
-    distanceInDirection (12 - (min 12 frame)) $ oppositeDirection direction
-animationFrameOffset _ _ _ = (0, 0)
-
-
-animationFrameTile :: MovableObjectType -> AnimationType -> Int -> (Int, TileOrientation)
-
-animationFrameTile Emerald _ _ = (5, Unrotated)
-
-animationFrameTile Hihi Unanimated _ = (9, Unrotated)
-animationFrameTile Hihi (Moving _) 0 = (10, Unrotated)
-animationFrameTile Hihi (Moving _) 1 = (10, Unrotated)
-animationFrameTile Hihi (Moving _) 2 = (10, Unrotated)
-animationFrameTile Hihi (Moving _) 3 = (10, Unrotated)
-animationFrameTile Hihi (Moving _) 4 = (9, Unrotated)
-animationFrameTile Hihi (Moving _) 5 = (9, Unrotated)
-animationFrameTile Hihi (Moving _) 6 = (9, Unrotated)
-animationFrameTile Hihi (Moving _) 7 = (9, Unrotated)
-animationFrameTile Hihi (Moving _) 8 = (11, Unrotated)
-animationFrameTile Hihi (Moving _) 9 = (11, Unrotated)
-animationFrameTile Hihi (Moving _) 10 = (11, Unrotated)
-animationFrameTile Hihi (Moving _) 11 = (11, Unrotated)
-animationFrameTile Hihi (Moving _) _ = (9, Unrotated)
-animationFrameTile Hihi (ChurningFeet direction) n
-    = animationFrameTile Hihi (Moving direction) n
-
-animationFrameTile Snake Unanimated _ = (12, Unrotated)
-animationFrameTile Snake (Standing Left) 0 = (12, Unrotated)
-animationFrameTile Snake (Standing Left) 1 = (13, Unrotated)
-animationFrameTile Snake (Standing Right) 0 = (12, FlippedHorizontal)
-animationFrameTile Snake (Standing Right) 1 = (13, FlippedHorizontal)
-animationFrameTile Snake animation@(Standing _) frame
-    = animationFrameTile Snake animation (frame `mod` 2)
-
-animationFrameTile object animation frame
-    = error $ "No animation tile defined for " ++ (show object)
-      ++ " " ++ (show animation) ++ " " ++ (show frame)
 
 
 drawTile :: GameContext -> (Int, Int) -> (Int, Int) -> Int -> TileOrientation -> IO ()
@@ -751,77 +654,6 @@ startAnimation gameContext movableObjectIndex animationType = do
                     activeLevelMovableObjects = movableObjects'
                   }
   putMVar (activeLevelMVar gameContext) activeLevel'
-
-
-locationInDirection :: (Int, Int) -> Direction -> (Int, Int)
-locationInDirection (x, y) Up = (x, y-1)
-locationInDirection (x, y) Down = (x, y+1)
-locationInDirection (x, y) Left = (x-1, y)
-locationInDirection (x, y) Right = (x+1, y)
-
-
-oppositeDirection :: Direction -> Direction
-oppositeDirection Up = Down
-oppositeDirection Down = Up
-oppositeDirection Left = Right
-oppositeDirection Right = Left
-
-
-directionToTheRight :: Direction -> Direction
-directionToTheRight Up = Right
-directionToTheRight Down = Left
-directionToTheRight Left = Up
-directionToTheRight Right = Down
-
-
-directionToTheLeft :: Direction -> Direction
-directionToTheLeft Up = Left
-directionToTheLeft Down = Right
-directionToTheLeft Left = Down
-directionToTheLeft Right = Up
-
-
-directionAxis :: Direction -> Axis
-directionAxis Up = Vertical
-directionAxis Down = Vertical
-directionAxis Left = Horizontal
-directionAxis Right = Horizontal
-
-
-directionSign :: Direction -> Int
-directionSign Up = -1
-directionSign Down = 1
-directionSign Left = -1
-directionSign Right = 1
-
-
-distanceInDirection :: Int -> Direction -> (Int, Int)
-distanceInDirection distance direction =
-    locationFromAxes [(distance * directionSign direction, directionAxis direction),
-                      (0, otherAxis $ directionAxis direction)]
-
-
-otherAxis :: Axis -> Axis
-otherAxis Horizontal = Vertical
-otherAxis Vertical = Horizontal
-
-
-valueOfAxis :: (Int, Int) -> Axis -> Int
-valueOfAxis (x, _) Horizontal = x
-valueOfAxis (_, y) Vertical = y
-
-
-locationFromAxes :: [(Int, Axis)] -> (Int, Int)
-locationFromAxes [(x, Horizontal), (y, Vertical)] = (x, y)
-locationFromAxes [(y, Vertical), (x, Horizontal)] = (x, y)
-
-
-locationIsOnFixedGrid :: (Int, Int) -> Bool
-locationIsOnFixedGrid (x, y) = (x `mod` 2 == 0) && (y `mod` 2 == 0)
-
-
-locationMappedToFixedGrid :: (Int, Int) -> (Int, Int)
-locationMappedToFixedGrid (x, y) = (x `div` 2, y `div` 2)
 
 
 keyDown :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
