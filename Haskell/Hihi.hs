@@ -596,6 +596,16 @@ startAnimation gameContext movableObjectID animationType = do
   putMVar (activeLevelMVar gameContext) activeLevel'
 
 
+getAnimation :: GameContext -> Int -> IO AnimationType
+getAnimation gameContext movableObjectID = do
+  activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
+      <- takeMVar $ activeLevelMVar gameContext
+  (_, _, _, Animation animation _)
+      <- return $ fromJust $ find (\(_, id, _, _) -> id == movableObjectID)
+                                  movableObjects
+  return animation
+
+
 startFrameTimer :: GameContext -> Int -> (GameContext -> IO ()) -> IO ()
 startFrameTimer gameContext frameDelay function = do
   currentFrame <- elapsedFrames gameContext
