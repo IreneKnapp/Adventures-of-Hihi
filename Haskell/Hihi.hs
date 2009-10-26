@@ -691,14 +691,19 @@ activateLevel gameContext level = do
   mapM (\objectIndex -> do
           let (location, id, object, _)
                   = activeLevelMovableObjects activeLevel !! objectIndex
-          case object of
-            Snake -> do
-              startAnimation gameContext id (Standing Left) 0
-              time <- flipSnakeTime
-              startFrameTimer gameContext time (flipSnake id)
-            _ -> return ())
+          activateObject gameContext object id)
        [0 .. (length $ activeLevelMovableObjects activeLevel) - 1]
   return ()
+
+
+activateObject :: GameContext -> MovableObjectType -> Int -> IO ()
+
+activateObject gameContext Snake id = do
+  startAnimation gameContext id (Standing Left) 0
+  time <- flipSnakeTime
+  startFrameTimer gameContext time (flipSnake id)
+
+activateObject _ _ _ = return ()
 
 
 flipSnakeTime :: IO Int
