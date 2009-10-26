@@ -273,9 +273,11 @@ drawTile gameContext (x, y) (xOffset, yOffset) tile orientation = do
   GL.texture GL.Texture2D $= GL.Enabled
   textureIDs <- readMVar $ textureIDsMVar gameContext
   GL.textureBinding GL.Texture2D $= Just (textureIDs !! tile)
-  top <- return $ fromIntegral $ (snd drawableSize) - (y * (tileSize `div` 2)) - yOffset*2
-      :: IO GL.GLshort
-  left <- return $ fromIntegral $ x * (tileSize `div` 2) + xOffset*2 :: IO GL.GLshort
+  offsetFactor <- return $ tileSize `div` 24
+  top <- return $ fromIntegral $ (snd drawableSize) - (y * (tileSize `div` 2))
+                                 - yOffset*offsetFactor :: IO GL.GLshort
+  left <- return $ fromIntegral $ x * (tileSize `div` 2)
+                                  + xOffset*offsetFactor :: IO GL.GLshort
   bottom <- return $ fromIntegral $ top - fromIntegral tileSize :: IO GL.GLshort
   right <- return $ fromIntegral $ left + fromIntegral tileSize :: IO GL.GLshort
   textureMin <- return 0.0 :: IO GL.GLfloat
