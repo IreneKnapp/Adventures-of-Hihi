@@ -22,12 +22,6 @@ keyDown drawable event gameContextPtr = do
                                  then pressedKeyList
                                  else [newKey] ++ pressedKeyList
   putMVar (pressedKeyListMVar gameContext) pressedKeyList'
-  stickyKeyList <- takeMVar $ stickyKeyListMVar gameContext
-  stickyKeyList' <- return $ if (elem newKey stickyKeyList
-                                 || (not $ keycodeIsOfInterest newKey))
-                                then stickyKeyList
-                                else [newKey] ++ stickyKeyList
-  putMVar (stickyKeyListMVar gameContext) stickyKeyList'
 
 
 keyUp :: EF.Drawable -> EF.Event -> Ptr () -> IO ()
@@ -37,13 +31,6 @@ keyUp drawable event gameContextPtr = do
   pressedKeyList <- takeMVar $ pressedKeyListMVar gameContext
   pressedKeyList' <- return $ delete removedKey pressedKeyList
   putMVar (pressedKeyListMVar gameContext) pressedKeyList'
-
-
-resetStickyKeys :: GameContext -> IO ()
-resetStickyKeys gameContext = do
-  pressedKeyList <- readMVar $ pressedKeyListMVar gameContext
-  swapMVar (stickyKeyListMVar gameContext) pressedKeyList
-  return ()
 
 
 cursorUpKeycode :: EF.Keycode
@@ -65,12 +52,6 @@ cursorRightKeycode = unsafePerformIO $ EF.inputKeycodeByName "cursor right"
 movementDirection :: GameContext -> IO (Maybe Direction)
 movementDirection gameContext = do
   keyList <- readMVar $ pressedKeyListMVar gameContext
-  return $ movementDirectionFromKeyList keyList
-
-
-abortedMovementDirection :: GameContext -> IO (Maybe Direction)
-abortedMovementDirection gameContext = do
-  keyList <- readMVar $ stickyKeyListMVar gameContext
   return $ movementDirectionFromKeyList keyList
 
 

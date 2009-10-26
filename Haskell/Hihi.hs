@@ -68,12 +68,10 @@ main = do
   audioSourceIDsMVar <- newEmptyMVar
   drawableMVar <- newEmptyMVar
   pressedKeyListMVar <- newMVar []
-  stickyKeyListMVar <- newMVar []
   startupTimeMVar <- newEmptyMVar
   nextObjectIDMVar <- newMVar 0
   activeLevelMVar <- newEmptyMVar
   frameTimersMVar <- newMVar []
-  lastPlayedBlipAtFrameMVar <- newEmptyMVar
   lastAttemptedMovementAtFrameMVar <- newEmptyMVar
   gameContext <- return $ GameContext {
                    textureIDsMVar = textureIDsMVar,
@@ -81,12 +79,10 @@ main = do
                    audioSourceIDsMVar = audioSourceIDsMVar,
                    drawableMVar = drawableMVar,
                    pressedKeyListMVar = pressedKeyListMVar,
-                   stickyKeyListMVar = stickyKeyListMVar,
                    startupTimeMVar = startupTimeMVar,
                    nextObjectIDMVar = nextObjectIDMVar,
                    activeLevelMVar = activeLevelMVar,
                    frameTimersMVar = frameTimersMVar,
-                   lastPlayedBlipAtFrameMVar = lastPlayedBlipAtFrameMVar,
                    lastAttemptedMovementAtFrameMVar = lastAttemptedMovementAtFrameMVar
                  }
   gameContextStablePtr <- newStablePtr gameContext
@@ -121,7 +117,6 @@ main = do
   
   putMVar drawableMVar drawable
   putMVar startupTimeMVar startupTime
-  putMVar lastPlayedBlipAtFrameMVar $ -1
   putMVar lastAttemptedMovementAtFrameMVar $ -1
   activateLevel gameContext demoLevel
   
@@ -335,41 +330,26 @@ frame timer gameContextPtr = do
   
   runFrameTimers gameContext currentFrame
   
-  lastPlayedBlipAtFrame <- readMVar $ lastPlayedBlipAtFrameMVar gameContext
-  nextBlipFrame <- return $ if lastPlayedBlipAtFrame == -1 
-                            then 0
-                            else lastPlayedBlipAtFrame + 100
+  processOverlappingObjects gameContext
   
-  if currentFrame >= fromIntegral nextBlipFrame
+  shouldMove <- movementAllowed gameContext currentFrame
+  if shouldMove
      then do
-       sourceIDs <- readMVar $ audioSourceIDsMVar gameContext
-       -- AL.play [(sourceIDs !! 1)]
-       swapMVar (lastPlayedBlipAtFrameMVar gameContext) nextBlipFrame
-       return ()
-     else return ()
-  
-  lastAttemptedMovementAtFrame <- readMVar $ lastAttemptedMovementAtFrameMVar gameContext
-  nextMovementFrame <- return $ if lastAttemptedMovementAtFrame == -1
-                                then 0
-                                else lastAttemptedMovementAtFrame + 12
-  
-  if currentFrame >= fromIntegral nextMovementFrame
-     then do
-       processOverlappingObjects gameContext
        maybeDirection <- movementDirection gameContext
        case maybeDirection of
          Just direction -> attemptMovement gameContext direction
-         Nothing -> do
-            maybeAbortedDirection <- abortedMovementDirection gameContext
-            case maybeAbortedDirection of
-              Nothing -> return ()
-              Just direction -> showAbortedMovement gameContext direction
-       resetStickyKeys gameContext
-       swapMVar (lastAttemptedMovementAtFrameMVar gameContext) nextMovementFrame
-       return ()
+         Nothing -> return ()
      else return ()
-  
-  return ()
+
+
+movementAllowed :: GameContext -> Word64 -> IO Bool
+movementAllowed gameContext currentFrame = do
+  hihiAnimation <- getAnimation gameContext 0
+  case hihiAnimation of
+    Moving _ -> do
+      frame <- getAnimationFrame gameContext currentFrame 0
+      return $ frame >= 12
+    _ -> return True
 
 
 attemptMovement :: GameContext -> Direction -> IO ()
@@ -436,13 +416,6 @@ attemptMovement gameContext direction = do
     _ -> do
       startAnimation gameContext 0 (ChurningFeet direction) 0
       return ()
-
-
-showAbortedMovement :: GameContext -> Direction -> IO ()
-showAbortedMovement gameContext direction = do
-  ActiveLevel { activeLevelMovableObjects = movableObjects }
-    <- readMVar $ activeLevelMVar gameContext
-  startAnimation gameContext 0 (ChurningFeet direction) 0
 
 
 processOverlappingObjects :: GameContext -> IO ()
@@ -612,6 +585,16 @@ getAnimation gameContext movableObjectID = do
       <- return $ fromJust $ find (\(_, id, _, _) -> id == movableObjectID)
                                   movableObjects
   return animation
+
+
+getAnimationFrame :: GameContext -> Word64 -> Int -> IO Word64
+getAnimationFrame gameContext currentFrame movableObjectID = do
+  activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
+      <- readMVar $ activeLevelMVar gameContext
+  (_, _, _, Animation _ startTime)
+      <- return $ fromJust $ find (\(_, id, _, _) -> id == movableObjectID)
+                                  movableObjects
+  return $ currentFrame - startTime
 
 
 startFrameTimer :: GameContext -> Int -> (GameContext -> IO ()) -> IO ()

@@ -15,12 +15,10 @@ data GameContext = GameContext {
       audioSourceIDsMVar :: MVar [AL.Source],
       drawableMVar :: MVar EF.Drawable,
       pressedKeyListMVar :: MVar [EF.Keycode],
-      stickyKeyListMVar :: MVar [EF.Keycode],
       startupTimeMVar :: MVar Word64,
       nextObjectIDMVar :: MVar Int,
       activeLevelMVar :: MVar ActiveLevel,
       frameTimersMVar :: MVar [(Word64, GameContext -> IO ())],
-      lastPlayedBlipAtFrameMVar :: MVar Int,
       lastAttemptedMovementAtFrameMVar :: MVar Int
     }
 
