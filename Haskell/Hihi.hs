@@ -33,8 +33,8 @@ demoLevel =
                              else Ground
         groundCell location = (location, ground location)
         object (x, y) = if ((x >= 2) && (y == 0))
-                                || (x == 10)
-                                || ((x >= 2) && (y == 10))
+                                || (x == levelSize-1)
+                                || ((x >= 2) && (y == levelSize-1))
                              then Just $ Fixed Rock
                              else case (x, y) of
                                (6, 1) -> Just (Fixed $ Arrow Right)

@@ -8,6 +8,7 @@ import qualified Graphics.UI.EmeraldFrame as EF
 import Prelude hiding (Left, Right)
 import qualified Sound.OpenAL as AL
 
+import Parameters
 import Types
 
 
@@ -134,4 +135,4 @@ isDirectlyInFrontOf firstLocation secondLocation direction =
 
 
 allLocations :: [(Int, Int)]
-allLocations = [(x, y) | x <- [0..10], y <- [0..10]]
+allLocations = [(x, y) | x <- [0..levelSize-1], y <- [0..levelSize-1]]

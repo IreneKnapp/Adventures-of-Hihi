@@ -6,7 +6,7 @@ tileSize = 48
 
 
 levelSize :: Int
-levelSize = 11
+levelSize = 13
 
 
 drawableSize :: (Int, Int)
