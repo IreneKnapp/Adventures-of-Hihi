@@ -409,7 +409,7 @@ attemptMovement gameContext direction = do
                   obstructionLocation' <- return $ locationInDirection obstructionLocation
                                                                        direction
                   updateLocation gameContext obstructionIndex obstructionLocation'
-                  startAnimation gameContext obstructionIndex (Moving direction)
+                  startAnimation gameContext obstructionIndex (Moving direction) 0
                 _ -> return ())
            specialMovementObstructions
       return ()
@@ -424,10 +424,10 @@ attemptMovement gameContext direction = do
     [] -> do
       protagonistLocation' <- return $ locationInDirection protagonistLocation direction
       updateLocation gameContext 0 protagonistLocation'
-      startAnimation gameContext 0 (Moving direction)
+      startAnimation gameContext 0 (Moving direction) 0
       return ()
     _ -> do
-      startAnimation gameContext 0 (ChurningFeet direction)
+      startAnimation gameContext 0 (ChurningFeet direction) 0
       return ()
 
 
@@ -435,7 +435,7 @@ showAbortedMovement :: GameContext -> Direction -> IO ()
 showAbortedMovement gameContext direction = do
   ActiveLevel { activeLevelMovableObjects = movableObjects }
     <- readMVar $ activeLevelMVar gameContext
-  startAnimation gameContext 0 (ChurningFeet direction)
+  startAnimation gameContext 0 (ChurningFeet direction) 0
 
 
 processOverlappingObjects :: GameContext -> IO ()
@@ -574,11 +574,12 @@ updateLocation gameContext movableObjectID newLocation = do
   putMVar (activeLevelMVar gameContext) activeLevel'
 
 
-startAnimation :: GameContext -> Int -> AnimationType -> IO ()
-startAnimation gameContext movableObjectID animationType = do
+startAnimation :: GameContext -> Int -> AnimationType -> Int -> IO ()
+startAnimation gameContext movableObjectID animationType startFrameOffset = do
   activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
       <- takeMVar $ activeLevelMVar gameContext
-  startTime <- elapsedFrames gameContext
+  startTimeIgnoringOffset <- elapsedFrames gameContext
+  startTime <- return $ startTimeIgnoringOffset - (fromIntegral startFrameOffset)
   movableObjectIndex <- return $ fromJust $ findIndex
                                               (\(_, id, _, _) -> id == movableObjectID)
                                               movableObjects
@@ -682,7 +683,23 @@ activateLevel gameContext level = do
                   = activeLevelMovableObjects activeLevel !! objectIndex
           case object of
             Snake -> do
-              startAnimation gameContext objectIndex (Standing Left)
+              startAnimation gameContext id (Standing Left) 0
+              startFrameTimer gameContext flipSnakeTime (flipSnake id)
             _ -> return ())
        [0 .. (length $ activeLevelMovableObjects activeLevel) - 1]
   return ()
+
+
+flipSnakeTime :: Int
+flipSnakeTime = ((millisecondsToFrameCount 5000) `div` 24) * 24 + 12
+
+
+flipSnake :: Int -> GameContext -> IO ()
+flipSnake id gameContext = do
+  animation <- getAnimation gameContext id
+  case animation of
+    Standing direction -> do
+                   startAnimation gameContext id
+                                  (Standing $ oppositeDirection direction) 24
+                   startFrameTimer gameContext flipSnakeTime (flipSnake id)
+    _ -> return ()
