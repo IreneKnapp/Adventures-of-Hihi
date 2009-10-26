@@ -301,7 +301,7 @@ drawTile gameContext (x, y) (xOffset, yOffset) tile orientation = do
       RotatedRight -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
       Rotated180 -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
       RotatedLeft -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
-      FlippedHorizontal -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
+      FlippedHorizontal -> GL.texCoord $ (GL.TexCoord2 textureMin textureMin)
       FlippedVertical -> GL.texCoord $ (GL.TexCoord2 textureMax textureMax)
       FlippedDiagonalNWSE -> GL.texCoord $ (GL.TexCoord2 textureMin textureMax)
       FlippedDiagonalNESW -> GL.texCoord $ (GL.TexCoord2 textureMax textureMin)
