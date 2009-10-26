@@ -627,8 +627,9 @@ runFrameTimers gameContext currentFrame = do
   frameTimers <- takeMVar $ frameTimersMVar gameContext
   (timersToRun, frameTimers')
       <- return $ span (\(time, _) -> time <= currentFrame) frameTimers
-  mapM (\(_, timer) -> timer gameContext) timersToRun
   putMVar (frameTimersMVar gameContext) frameTimers'
+  mapM (\(_, timer) -> timer gameContext) timersToRun
+  return ()
 
 
 newObjectID :: GameContext -> IO Int
