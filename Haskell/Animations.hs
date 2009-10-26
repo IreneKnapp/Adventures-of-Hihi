@@ -14,7 +14,13 @@ import Types
 
 
 groundTile :: GroundType -> (Int, Int) -> Word64 -> (Int, TileOrientation)
-groundTile Ground _ _ = (0, Unrotated)
+groundTile Ground (x, y) _ =
+    let which = (x + (y * levelSize)) `mod` 4
+    in case which of
+         0 -> (0, Unrotated)
+         1 -> (0, FlippedHorizontal)
+         2 -> (0, FlippedVertical)
+         3 -> (0, Rotated180)
 groundTile Grass _ _ = (1, Unrotated)
 groundTile Water (x, y) frame =
     let which = (x + (y * levelSize) + (fromIntegral $ frame `div` 20)) `mod` 2
