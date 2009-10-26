@@ -819,6 +819,5 @@ moveSkullTowardsPlayer id gameContext = do
       preferredDirection = directionAlongAxis preferredAxisDistanceToMove
                                               preferredAxisToMoveAlong
   setLocation gameContext id preferredNewLocation
-  --startAnimation gameContext id (Moving preferredDirection) 0
   startAnimatingOffset gameContext id preferredDirection
   startFrameTimer gameContext 12 (moveSkullTowardsPlayer id)
