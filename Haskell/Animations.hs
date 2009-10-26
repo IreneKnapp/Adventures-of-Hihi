@@ -39,12 +39,6 @@ fixedObjectTile (Arrow Left) = (8, Rotated180)
 fixedObjectTile (Arrow Up) = (8, RotatedLeft)
 
 
-animationFrameOffset :: MovableObjectType -> AnimationType -> Int -> (Int, Int)
-animationFrameOffset _ (Moving direction) frame =
-    distanceInDirection (12 - (min 12 frame)) $ oppositeDirection direction
-animationFrameOffset _ _ _ = (0, 0)
-
-
 animationFrameTile :: MovableObjectType -> AnimationType -> Int -> (Int, TileOrientation)
 
 animationFrameTile Emerald _ _ = (5, Unrotated)

@@ -42,7 +42,8 @@ data Level = Level {
 data ActiveLevel = ActiveLevel {
       activeLevelGround :: Array (Int, Int) GroundType,
       activeLevelFixedObjects :: Array (Int, Int) (Maybe FixedObjectType),
-      activeLevelMovableObjects :: [((Int, Int), Int, MovableObjectType, Animation)],
+      activeLevelMovableObjects
+          :: [((Int, Int), Int, MovableObjectType, Animation, (Int, Int))],
       activeLevelHeartsTotal :: Int,
       activeLevelHeartsCollected :: Int
     }
