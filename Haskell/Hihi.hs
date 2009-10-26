@@ -556,53 +556,6 @@ obstructionsInDirection gameContext location direction = do
   return $ concat [obstructingFixedObjects, obstructingMobileObjects, obstructingTerrain]
 
 
-possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
-possibleFixedObstructionLocationsInDirection location direction
-    = let primaryAxis = directionAxis direction
-          secondaryAxis = otherAxis primaryAxis
-          primaryCoordinate = valueOfAxis location primaryAxis
-          secondaryCoordinate = valueOfAxis location secondaryAxis
-      in if primaryCoordinate `mod` 2 == 1
-         then []
-         else if secondaryCoordinate `mod` 2 == 1
-              then [locationFromAxes
-                    [((primaryCoordinate `div` 2) + directionSign direction, primaryAxis),
-                     ((secondaryCoordinate - 1) `div` 2, secondaryAxis)],
-                    locationFromAxes
-                    [((primaryCoordinate `div` 2) + directionSign direction, primaryAxis),
-                     ((secondaryCoordinate + 1) `div` 2, secondaryAxis)]]
-              else [locationFromAxes
-                    [((primaryCoordinate `div` 2) + directionSign direction, primaryAxis),
-                     (secondaryCoordinate `div` 2, secondaryAxis)]]
-
-
-possibleMobileObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
-possibleMobileObstructionLocationsInDirection location direction
-    = let primaryAxis = directionAxis direction
-          secondaryAxis = otherAxis primaryAxis
-          primaryCoordinate = valueOfAxis location primaryAxis
-          secondaryCoordinate = valueOfAxis location secondaryAxis
-          newPrimaryCoordinate = primaryCoordinate + (directionSign direction * 2)
-      in map locationFromAxes [[(newPrimaryCoordinate, primaryAxis),
-                                (secondaryCoordinate - 1, secondaryAxis)],
-                               [(newPrimaryCoordinate, primaryAxis),
-                                (secondaryCoordinate, secondaryAxis)],
-                               [(newPrimaryCoordinate, primaryAxis),
-                                (secondaryCoordinate + 1, secondaryAxis)]]
-
-
-isDirectlyInFrontOf :: (Int, Int) -> (Int, Int) -> Direction -> Bool
-isDirectlyInFrontOf firstLocation secondLocation direction =
-    let primaryAxis = directionAxis direction
-        secondaryAxis = otherAxis primaryAxis
-        firstPrimaryCoordinate = valueOfAxis firstLocation primaryAxis
-        secondPrimaryCoordinate = valueOfAxis secondLocation primaryAxis
-        firstSecondaryCoordinate = valueOfAxis firstLocation secondaryAxis
-        secondSecondaryCoordinate = valueOfAxis secondLocation secondaryAxis
-    in (firstPrimaryCoordinate + (directionSign direction * 2) == secondPrimaryCoordinate)
-       && (firstSecondaryCoordinate == secondSecondaryCoordinate)
-
-
 objectsInLocation :: GameContext -> (Int, Int) -> IO [ObjectType]
 objectsInLocation gameContext targetLocation = do
   ActiveLevel { activeLevelFixedObjects = fixedObjects,
