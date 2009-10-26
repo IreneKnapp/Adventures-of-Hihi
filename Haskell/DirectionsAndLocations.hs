@@ -127,3 +127,7 @@ isDirectlyInFrontOf firstLocation secondLocation direction =
         secondSecondaryCoordinate = valueOfAxis secondLocation secondaryAxis
     in (firstPrimaryCoordinate + (directionSign direction * 2) == secondPrimaryCoordinate)
        && (firstSecondaryCoordinate == secondSecondaryCoordinate)
+
+
+allLocations :: [(Int, Int)]
+allLocations = [(x, y) | x <- [0..10], y <- [0..10]]

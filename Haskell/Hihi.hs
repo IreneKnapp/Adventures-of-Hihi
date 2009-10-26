@@ -610,10 +610,6 @@ startAnimation gameContext movableObjectIndex animationType = do
   putMVar (activeLevelMVar gameContext) activeLevel'
 
 
-allLocations :: [(Int, Int)]
-allLocations = [(x, y) | x <- [0..10], y <- [0..10]]
-
-
 buildActiveLevel :: Level -> ActiveLevel
 buildActiveLevel level =
     let ground = levelGround level
