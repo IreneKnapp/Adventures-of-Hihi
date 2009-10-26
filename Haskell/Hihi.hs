@@ -599,7 +599,7 @@ startAnimation gameContext movableObjectID animationType = do
 getAnimation :: GameContext -> Int -> IO AnimationType
 getAnimation gameContext movableObjectID = do
   activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
-      <- takeMVar $ activeLevelMVar gameContext
+      <- readMVar $ activeLevelMVar gameContext
   (_, _, _, Animation animation _)
       <- return $ fromJust $ find (\(_, id, _, _) -> id == movableObjectID)
                                   movableObjects
