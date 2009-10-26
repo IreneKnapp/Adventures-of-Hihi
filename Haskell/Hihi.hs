@@ -661,6 +661,7 @@ buildActiveLevel gameContext level = do
 activateLevel :: GameContext -> Level -> IO ()
 activateLevel gameContext level = do
   resetObjectIDs gameContext
+  stopFrameTimers gameContext
   activeLevel <- buildActiveLevel gameContext level
   putMVar (activeLevelMVar gameContext) activeLevel
   mapM (\objectIndex -> do
