@@ -810,14 +810,22 @@ moveSkullTowardsPlayer id gameContext = do
   skullLocation <- getLocation gameContext id
   playerLocation <- getLocation gameContext 0
   let skullPlayerOffset = locationOffset skullLocation playerLocation
-      preferredAxisToMoveAlong = greaterAxis skullPlayerOffset
+      maybePreferredAxisToMoveAlong = greaterAxis skullPlayerOffset
+      preferredAxisToMoveAlong = case maybePreferredAxisToMoveAlong of
+                                   Nothing -> Horizontal
+                                   Just axis -> axis
       preferredAxisDistanceToMove
           = - (signum $ valueOfAxis skullPlayerOffset preferredAxisToMoveAlong)
-      preferredNewLocation = locationSum (distanceAlongAxis preferredAxisDistanceToMove
-                                                            preferredAxisToMoveAlong)
-                                         skullLocation
-      preferredDirection = directionAlongAxis preferredAxisDistanceToMove
-                                              preferredAxisToMoveAlong
+      (preferredNewLocation, maybePreferredDirection)
+          = if preferredAxisDistanceToMove /= 0
+            then (locationSum (distanceAlongAxis preferredAxisDistanceToMove
+                                                preferredAxisToMoveAlong)
+                              skullLocation,
+                  Just $ directionAlongAxis preferredAxisDistanceToMove
+                                     preferredAxisToMoveAlong)
+            else (skullLocation, Nothing)
   setLocation gameContext id preferredNewLocation
-  startAnimatingOffset gameContext id preferredDirection
+  case maybePreferredDirection of
+    Just preferredDirection -> startAnimatingOffset gameContext id preferredDirection
+    Nothing -> return ()
   startFrameTimer gameContext 12 (moveSkullTowardsPlayer id)

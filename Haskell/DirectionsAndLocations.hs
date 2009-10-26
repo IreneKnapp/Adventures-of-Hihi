@@ -109,8 +109,13 @@ locationSum :: (Int, Int) -> (Int, Int) -> (Int, Int)
 locationSum (x1, y1) (x2, y2) = (x1 + x2, y1 + y2)
 
 
-greaterAxis :: (Int, Int) -> Axis
-greaterAxis (x, y) = if (abs x) >= (abs y) then Horizontal else Vertical
+greaterAxis :: (Int, Int) -> Maybe Axis
+greaterAxis (x, y)
+    = if (abs x) > (abs y)
+      then Just Horizontal
+      else if (abs y) > (abs x)
+           then Just Vertical
+           else Nothing
 
 
 possibleFixedObstructionLocationsInDirection :: (Int, Int) -> Direction -> [(Int, Int)]
