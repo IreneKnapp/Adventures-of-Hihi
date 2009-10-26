@@ -658,10 +658,13 @@ buildActiveLevel gameContext level = do
                                                   -> Just fixedObject
                                               _ -> Nothing)
                                 $ levelObjects level
+  hihiID <- newObjectID gameContext
   movableObjectsLists <- mapM (\location@(x, y) -> do
                                    case levelObjects level ! location of
                                      Just (Movable movableObject) -> do
-                                       id <- newObjectID gameContext
+                                       id <- case movableObject of
+                                               Hihi -> return hihiID
+                                               _ -> newObjectID gameContext
                                        return [((x*2, y*2),
                                                 id,
                                                 movableObject,
