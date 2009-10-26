@@ -69,7 +69,9 @@ main = do
   pressedKeyListMVar <- newMVar []
   stickyKeyListMVar <- newMVar []
   startupTimeMVar <- newEmptyMVar
+  nextObjectIDMVar <- newMVar 0
   activeLevelMVar <- newEmptyMVar
+  frameTimersMVar <- newMVar []
   lastPlayedBlipAtFrameMVar <- newEmptyMVar
   lastAttemptedMovementAtFrameMVar <- newEmptyMVar
   gameContext <- return $ GameContext {
@@ -80,7 +82,9 @@ main = do
                    pressedKeyListMVar = pressedKeyListMVar,
                    stickyKeyListMVar = stickyKeyListMVar,
                    startupTimeMVar = startupTimeMVar,
+                   nextObjectIDMVar = nextObjectIDMVar,
                    activeLevelMVar = activeLevelMVar,
+                   frameTimersMVar = frameTimersMVar,
                    lastPlayedBlipAtFrameMVar = lastPlayedBlipAtFrameMVar,
                    lastAttemptedMovementAtFrameMVar = lastAttemptedMovementAtFrameMVar
                  }
@@ -245,7 +249,7 @@ draw drawable gameContextPtr = do
                       drawTile gameContext location offset objectTile objectOrientation)
                [0..levelSize-1])
        [0..levelSize-1]
-  mapM (\((x, y), object, (Animation animationType animationStart)) -> do
+  mapM (\((x, y), _, object, (Animation animationType animationStart)) -> do
           animationFrame <- return $ fromIntegral $ currentFrame - animationStart
           offset <- return $ animationFrameOffset object animationType animationFrame
           (tile, orientation) <- return
@@ -322,6 +326,8 @@ frame timer gameContextPtr = do
   
   currentFrame <- elapsedFrames gameContext
   
+  runFrameTimers gameContext currentFrame
+  
   lastPlayedBlipAtFrame <- readMVar $ lastPlayedBlipAtFrameMVar gameContext
   nextBlipFrame <- return $ if lastPlayedBlipAtFrame == -1 
                             then 0
@@ -363,12 +369,12 @@ attemptMovement :: GameContext -> Direction -> IO ()
 attemptMovement gameContext direction = do
   ActiveLevel { activeLevelMovableObjects = movableObjects }
     <- readMVar $ activeLevelMVar gameContext
-  protagonistIndex <- return $ fromJust $ findIndex (\(_, object, _) -> case object of
-                                                                       Hihi -> True
-                                                                       _ -> False)
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, _, object, _) -> case object of
+                                                                             Hihi -> True
+                                                                             _ -> False)
                                                     movableObjects
   protagonistLocation
-      <- return $ (\(location, _, _) -> location) $ movableObjects !! protagonistIndex
+      <- return $ (\(location, _, _, _) -> location) $ movableObjects !! protagonistIndex
   obstructions <- obstructionsInDirection gameContext protagonistLocation direction
   specialMovementObstructions
       <- return $ filter (obstructionHasSpecialMovementRule . snd) obstructions
@@ -401,7 +407,7 @@ attemptMovement gameContext direction = do
                 [] -> do
                   obstructionIndex <- return
                                       $ fromJust
-                                        $ findIndex (\(iLocation, i, _) ->
+                                        $ findIndex (\(iLocation, _, i, _) ->
                                                      iLocation == obstructionLocation
                                                      && i == obstruction)
                                                     movableObjects
@@ -434,9 +440,9 @@ showAbortedMovement :: GameContext -> Direction -> IO ()
 showAbortedMovement gameContext direction = do
   ActiveLevel { activeLevelMovableObjects = movableObjects }
     <- readMVar $ activeLevelMVar gameContext
-  protagonistIndex <- return $ fromJust $ findIndex (\(_, object, _) -> case object of
-                                                                       Hihi -> True
-                                                                       _ -> False)
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, _, object, _) -> case object of
+                                                                             Hihi -> True
+                                                                             _ -> False)
                                                     movableObjects
   startAnimation gameContext protagonistIndex (ChurningFeet direction)
 
@@ -445,12 +451,12 @@ processOverlappingObjects :: GameContext -> IO ()
 processOverlappingObjects gameContext = do
   ActiveLevel { activeLevelMovableObjects = movableObjects }
     <- readMVar $ activeLevelMVar gameContext
-  protagonistIndex <- return $ fromJust $ findIndex (\(_, object, _) -> case object of
-                                                                       Hihi -> True
-                                                                       _ -> False)
+  protagonistIndex <- return $ fromJust $ findIndex (\(_, _, object, _) -> case object of
+                                                                             Hihi -> True
+                                                                             _ -> False)
                                                     movableObjects
   protagonistLocation
-      <- return $ (\(location, _, _) -> location) $ movableObjects !! protagonistIndex
+      <- return $ (\(location, _, _, _) -> location) $ movableObjects !! protagonistIndex
   overlappingObjects <- objectsInLocation gameContext protagonistLocation
   overlappingObjects
     <- return $ filter (\object -> object /= Movable Hihi) overlappingObjects
@@ -523,12 +529,12 @@ obstructionsInDirection gameContext location direction = do
       <- return $ possibleMobileObstructionLocationsInDirection location direction
   obstructingMobileObjects
       <- return $ concat $ map (\location ->
-                                    let maybeObject = find (\(objectLocation, _, _)
+                                    let maybeObject = find (\(objectLocation, _, _, _)
                                                             -> location == objectLocation)
                                                            movableObjects
                                     in case maybeObject of
                                          Nothing -> []
-                                         Just (_, object, _)
+                                         Just (_, _, object, _)
                                              -> [(location, Object $ Movable object)])
                                possibleMobileObstructionLocations
   return $ concat [obstructingFixedObjects, obstructingMobileObjects, obstructingTerrain]
@@ -546,8 +552,8 @@ objectsInLocation gameContext targetLocation = do
                                   Nothing -> []
                            else []
   movableObjects <- return
-                    $ map (\(_, object, _) -> object)
-                    $ filter (\(objectLocation, object, _)
+                    $ map (\(_, _, object, _) -> object)
+                    $ filter (\(objectLocation, _, _, _)
                               -> objectLocation == targetLocation)
                              movableObjects
   return $ concat [map (\object -> Fixed object) fixedObjects,
@@ -559,9 +565,9 @@ updateLocation gameContext movableObjectIndex newLocation = do
   activeLevel@(ActiveLevel { activeLevelMovableObjects = movableObjects })
       <- takeMVar $ activeLevelMVar gameContext
   movableObjects' <- return $ concat [take movableObjectIndex movableObjects,
-                                      let (_, object, animation)
+                                      let (_, id, object, animation)
                                               = movableObjects !! movableObjectIndex
-                                      in [(newLocation, object, animation)],
+                                      in [(newLocation, id, object, animation)],
                                       drop (movableObjectIndex+1) movableObjects]
   activeLevel' <- return $ activeLevel {
                     activeLevelMovableObjects = movableObjects'
@@ -575,9 +581,10 @@ startAnimation gameContext movableObjectIndex animationType = do
       <- takeMVar $ activeLevelMVar gameContext
   startTime <- elapsedFrames gameContext
   movableObjects' <- return $ concat [take movableObjectIndex movableObjects,
-                                      let (location, object, _)
+                                      let (location, id, object, _)
                                               = movableObjects !! movableObjectIndex
                                       in [(location,
+                                           id,
                                            object,
                                            Animation animationType startTime)],
                                       drop (movableObjectIndex+1) movableObjects]
@@ -587,34 +594,77 @@ startAnimation gameContext movableObjectIndex animationType = do
   putMVar (activeLevelMVar gameContext) activeLevel'
 
 
-buildActiveLevel :: Level -> ActiveLevel
-buildActiveLevel level =
-    let ground = levelGround level
-        fixedObjects = fmap (\object -> case object of
-                                          Just (Fixed fixedObject) -> Just fixedObject
-                                          _ -> Nothing)
-                            $ levelObjects level
-        movableObjects = concat
-                         $ map (\location@(x, y) -> case levelObjects level ! location of
-                                               Just (Movable movableObject)
-                                                    -> [((x*2, y*2),
-                                                         movableObject,
-                                                         Animation Unanimated 0)]
-                                               _ -> [])
+startFrameTimer :: GameContext -> Int -> (GameContext -> IO ()) -> IO ()
+startFrameTimer gameContext frameDelay function = do
+  currentFrame <- elapsedFrames gameContext
+  absoluteFrame <- return $ (fromIntegral frameDelay) + currentFrame
+  frameTimers <- takeMVar $ frameTimersMVar gameContext
+  frameTimers' <- return $ sortBy (\(timeA, _) (timeB, _) -> compare timeA timeB)
+                                  (frameTimers ++ [(absoluteFrame, function)])
+  putMVar (frameTimersMVar gameContext) frameTimers'
+
+
+stopFrameTimers :: GameContext -> IO ()
+stopFrameTimers gameContext = do
+  swapMVar (frameTimersMVar gameContext) []
+  return ()
+
+
+runFrameTimers :: GameContext -> Word64 -> IO ()
+runFrameTimers gameContext currentFrame = do
+  frameTimers <- takeMVar $ frameTimersMVar gameContext
+  (timersToRun, frameTimers')
+      <- return $ span (\(time, _) -> time <= currentFrame) frameTimers
+  mapM (\(_, timer) -> timer gameContext) timersToRun
+  putMVar (frameTimersMVar gameContext) frameTimers'
+
+
+newObjectID :: GameContext -> IO Int
+newObjectID gameContext = do
+  result <- takeMVar $ nextObjectIDMVar gameContext
+  putMVar (nextObjectIDMVar gameContext) (result+1)
+  return result
+
+
+resetObjectIDs :: GameContext -> IO ()
+resetObjectIDs gameContext = do
+  swapMVar (nextObjectIDMVar gameContext) 0
+  return ()
+
+
+buildActiveLevel :: GameContext -> Level -> IO ActiveLevel
+buildActiveLevel gameContext level = do
+  ground <- return $ levelGround level
+  fixedObjects <- return $ fmap (\object -> case object of
+                                              Just (Fixed fixedObject)
+                                                  -> Just fixedObject
+                                              _ -> Nothing)
+                                $ levelObjects level
+  movableObjectsLists <- mapM (\location@(x, y) -> do
+                                   case levelObjects level ! location of
+                                     Just (Movable movableObject) -> do
+                                       id <- newObjectID gameContext
+                                       return [((x*2, y*2),
+                                                id,
+                                                movableObject,
+                                                Animation Unanimated 0)]
+                                     _ -> return [])
                                allLocations
-    in ActiveLevel {
-             activeLevelGround = ground,
-             activeLevelFixedObjects = fixedObjects,
-             activeLevelMovableObjects = movableObjects
-           }
+  movableObjects <- return $ concat movableObjectsLists
+  return $ ActiveLevel {
+               activeLevelGround = ground,
+               activeLevelFixedObjects = fixedObjects,
+               activeLevelMovableObjects = movableObjects
+             }
 
 
 activateLevel :: GameContext -> Level -> IO ()
 activateLevel gameContext level = do
-  activeLevel <- return $ buildActiveLevel level
+  resetObjectIDs gameContext
+  activeLevel <- buildActiveLevel gameContext level
   putMVar (activeLevelMVar gameContext) activeLevel
   mapM (\objectIndex -> do
-          let (location, object, _)
+          let (location, id, object, _)
                   = activeLevelMovableObjects activeLevel !! objectIndex
           case object of
             Snake -> do

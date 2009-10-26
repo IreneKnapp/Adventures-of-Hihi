@@ -17,7 +17,9 @@ data GameContext = GameContext {
       pressedKeyListMVar :: MVar [EF.Keycode],
       stickyKeyListMVar :: MVar [EF.Keycode],
       startupTimeMVar :: MVar Word64,
+      nextObjectIDMVar :: MVar Int,
       activeLevelMVar :: MVar ActiveLevel,
+      frameTimersMVar :: MVar [(Word64, GameContext -> IO ())],
       lastPlayedBlipAtFrameMVar :: MVar Int,
       lastAttemptedMovementAtFrameMVar :: MVar Int
     }
@@ -42,7 +44,7 @@ data Level = Level {
 data ActiveLevel = ActiveLevel {
       activeLevelGround :: Array (Int, Int) GroundType,
       activeLevelFixedObjects :: Array (Int, Int) (Maybe FixedObjectType),
-      activeLevelMovableObjects :: [((Int, Int), MovableObjectType, Animation)]
+      activeLevelMovableObjects :: [((Int, Int), Int, MovableObjectType, Animation)]
     }
 
 data GroundType = Ground
