@@ -15,6 +15,7 @@ import Prelude hiding (Left, Right)
 import qualified Sound.OpenAL as AL
 import Sound.OpenAL.AL.BufferInternal (marshalBuffer)
 import System.IO.Unsafe
+import System.Random
 
 import Animations
 import DirectionsAndLocations
@@ -691,14 +692,17 @@ activateLevel gameContext level = do
           case object of
             Snake -> do
               startAnimation gameContext id (Standing Left) 0
-              startFrameTimer gameContext flipSnakeTime (flipSnake id)
+              time <- flipSnakeTime
+              startFrameTimer gameContext time (flipSnake id)
             _ -> return ())
        [0 .. (length $ activeLevelMovableObjects activeLevel) - 1]
   return ()
 
 
-flipSnakeTime :: Int
-flipSnakeTime = ((millisecondsToFrameCount 5000) `div` 24) * 24 + 12
+flipSnakeTime :: IO Int
+flipSnakeTime = do
+  seconds <- randomRIO (10, 20)
+  return $ ((millisecondsToFrameCount $ seconds*1000) `div` 24) * 24 + 12
 
 
 flipSnake :: Int -> GameContext -> IO ()
@@ -708,5 +712,6 @@ flipSnake id gameContext = do
     Standing direction -> do
                    startAnimation gameContext id
                                   (Standing $ oppositeDirection direction) 24
-                   startFrameTimer gameContext flipSnakeTime (flipSnake id)
+                   time <- flipSnakeTime
+                   startFrameTimer gameContext time (flipSnake id)
     _ -> return ()
