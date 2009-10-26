@@ -213,6 +213,10 @@ frameDuration :: Int
 frameDuration = 16
 
 
+millisecondsToFrameCount :: Int -> Int
+millisecondsToFrameCount milliseconds = milliseconds `div` frameDuration
+
+
 elapsedFrames :: GameContext -> IO Word64
 elapsedFrames gameContext = do
   currentTime <- EF.timeUnixEpoch
