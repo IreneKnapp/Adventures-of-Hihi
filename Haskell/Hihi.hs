@@ -165,7 +165,7 @@ loadTextures :: GameContext -> EF.Drawable -> IO ()
 loadTextures gameContext drawable = do
   EF.drawableMakeCurrent drawable
   GL.texture GL.Texture2D $= GL.Enabled
-  newTextureIDs <- genObjectNames 17 :: IO [GL.TextureObject]
+  newTextureIDs <- genObjectNames 26 :: IO [GL.TextureObject]
   putMVar (textureIDsMVar gameContext) newTextureIDs
   resourcePath <- EF.configurationResourceDirectory
   mapM (\(resourceName, textureID) -> do
@@ -186,7 +186,16 @@ loadTextures gameContext drawable = do
               "character-snake-left2.png",
               "character-skull1.png",
               "character-skull2.png",
-              "character-skull3.png"]
+              "character-skull3.png",
+              "character-frog-down-rest.png",
+              "character-frog-down-sleep1.png",
+              "character-frog-down-sleep2.png",
+              "character-frog-up-sleep1.png",
+              "character-frog-up-sleep2.png",
+              "character-frog-left-sleep1.png",
+              "character-frog-left-sleep2.png",
+              "character-frog-left-walk1.png",
+              "character-frog-left-walk2.png"]
              newTextureIDs
   mapM (\textureID -> do
           GL.textureBinding GL.Texture2D $= Just textureID
@@ -492,7 +501,8 @@ obstructionShouldBlockMovementInDirectionForMover
   = arrowDirection == oppositeDirection movementDirection
 obstructionShouldBlockMovementInDirectionForMover
   (Object (Fixed (Arrow _))) _ _ = False
-obstructionShouldBlockMovementInDirectionForMover (Object (Fixed Heart)) _ _ = False
+obstructionShouldBlockMovementInDirectionForMover (Object (Fixed Heart)) _ Hihi = False
+obstructionShouldBlockMovementInDirectionForMover (Object (Fixed Heart)) _ _ = True
 obstructionShouldBlockMovementInDirectionForMover (Object _) _ _ = True
 obstructionShouldBlockMovementInDirectionForMover (Terrain Water) _ _ = True
 obstructionShouldBlockMovementInDirectionForMover (Terrain _) _ _ = False
@@ -819,13 +829,54 @@ moveSkullTowardsPlayer id gameContext = do
       (preferredNewLocation, maybePreferredDirection)
           = if preferredAxisDistanceToMove /= 0
             then (locationSum (distanceAlongAxis preferredAxisDistanceToMove
-                                                preferredAxisToMoveAlong)
+                                                 preferredAxisToMoveAlong)
                               skullLocation,
                   Just $ directionAlongAxis preferredAxisDistanceToMove
-                                     preferredAxisToMoveAlong)
+                                            preferredAxisToMoveAlong)
             else (skullLocation, Nothing)
-  setLocation gameContext id preferredNewLocation
+      alternateAxisToMoveAlong = otherAxis preferredAxisToMoveAlong
+      alternateAxisDistanceToMove
+          = - (signum $ valueOfAxis skullPlayerOffset alternateAxisToMoveAlong)
+      (alternateNewLocation, maybeAlternateDirection)
+          = if alternateAxisDistanceToMove /= 0
+            then (locationSum (distanceAlongAxis alternateAxisDistanceToMove
+                                                 alternateAxisToMoveAlong)
+                              skullLocation,
+                  Just $ directionAlongAxis alternateAxisDistanceToMove
+                                            alternateAxisToMoveAlong)
+            else (skullLocation, Nothing)
   case maybePreferredDirection of
-    Just preferredDirection -> startAnimatingOffset gameContext id preferredDirection
-    Nothing -> return ()
-  startFrameTimer gameContext 12 (moveSkullTowardsPlayer id)
+    Just preferredDirection -> do
+      obstructions <- obstructionsInDirection gameContext skullLocation preferredDirection
+      obstructions
+          <- return $ filter (\pair
+                                  -> obstructionShouldBlockMovementInDirectionForMover
+                                     (snd pair) preferredDirection Skull)
+                             obstructions
+      case obstructions of
+        [] -> do
+          setLocation gameContext id preferredNewLocation
+          startAnimatingOffset gameContext id preferredDirection
+          startFrameTimer gameContext 12 (moveSkullTowardsPlayer id)
+        _ -> do
+          case maybeAlternateDirection of
+            Just alternateDirection -> do
+              obstructions <- obstructionsInDirection gameContext
+                                                      skullLocation
+                                                      alternateDirection
+              obstructions
+                  <- return $ filter
+                     (\pair -> obstructionShouldBlockMovementInDirectionForMover
+                               (snd pair) alternateDirection Skull)
+                     obstructions
+              case obstructions of
+                [] -> do
+                  setLocation gameContext id alternateNewLocation
+                  startAnimatingOffset gameContext id alternateDirection
+                  startFrameTimer gameContext 12 (moveSkullTowardsPlayer id)
+                _ -> do
+                  startFrameTimer gameContext 1 (moveSkullTowardsPlayer id)
+            Nothing -> do
+               startFrameTimer gameContext 1 (moveSkullTowardsPlayer id)
+    Nothing -> do
+      startFrameTimer gameContext 1 (moveSkullTowardsPlayer id)
